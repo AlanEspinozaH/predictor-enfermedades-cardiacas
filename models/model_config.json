@@ -1,0 +1,78 @@
+{
+    "schema_version": "1.0.0",
+    "target": "HeartDisease",
+    "input_features": [
+        "Age",
+        "IncomeRatio",
+        "SystolicBP",
+        "BMI",
+        "WaistCircumference",
+        "Height",
+        "TotalCholesterol",
+        "Triglycerides",
+        "LDL",
+        "HDL",
+        "HbA1c",
+        "Glucose",
+        "Creatinine",
+        "UricAcid",
+        "ALT_Enzyme",
+        "Albumin",
+        "Potassium",
+        "Sodium",
+        "GGT_Enzyme",
+        "AST_Enzyme",
+        "Sex",
+        "Race",
+        "Education",
+        "Smoking",
+        "PhysicalActivity",
+        "HealthInsurance",
+        "Alcohol"
+    ],
+    "numeric_features": [
+        "Age",
+        "IncomeRatio",
+        "SystolicBP",
+        "BMI",
+        "WaistCircumference",
+        "Height",
+        "TotalCholesterol",
+        "Triglycerides",
+        "LDL",
+        "HDL",
+        "HbA1c",
+        "Glucose",
+        "Creatinine",
+        "UricAcid",
+        "ALT_Enzyme",
+        "Albumin",
+        "Potassium",
+        "Sodium",
+        "GGT_Enzyme",
+        "AST_Enzyme"
+    ],
+    "categorical_features": [
+        "Sex",
+        "Race",
+        "Education",
+        "Smoking",
+        "PhysicalActivity",
+        "HealthInsurance",
+        "Alcohol"
+    ],
+    "ignore_features": [
+        "SEQN"
+    ],
+    "minimum_age": 20,
+    "encodings": {
+        "Sex": {
+            "1": "Male",
+            "2": "Female"
+        },
+        "binary_features": {
+            "0": "No",
+            "1": "Yes"
+        }
+    }
+}

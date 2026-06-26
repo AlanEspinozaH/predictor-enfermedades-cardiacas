@@ -1,0 +1,29 @@
+{
+    "manifest_version": "1.0.0",
+    "model_id": "nhanes-heart-disease-pycaret-legacy-v1",
+    "status": "legacy_prototype_deployed",
+    "model": {
+        "path": "models/best_pipeline.pkl",
+        "format": "pycaret_pickle",
+        "sha256": "7c690edeeda456a07b48b025e6de17a579dd9ec2152998698f704a5862a8cbf5"
+    },
+    "feature_config": {
+        "path": "models/model_config.json",
+        "schema_version": "1.0.0",
+        "sha256": "7764816a3b3786208fd1f751155f70a143f83836b86e760d09eb64ded056f1ce"
+    },
+    "decision_threshold": {
+        "value": 0.2,
+        "source": "legacy_streamlit_default",
+        "validation_status": "not_independently_validated"
+    },
+    "training_data": {
+        "path": "data/02_intermediate/process_data.parquet",
+        "sha256": "7e36fc21281d0c46f824d801ca9c2b77489a5ea4e48016edd62b40bdaf32ee9e"
+    },
+    "limitations": [
+        "The deployed artifact is a legacy academic prototype.",
+        "The decision threshold has not been validated on an independent clinical cohort.",
+        "The training data and target construction require methodological correction before retraining."
+    ]
+}

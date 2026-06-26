@@ -1,0 +1,11 @@
+{
+    "status": "INVALIDATED_LEGACY_RESULT",
+    "reason": [
+        "The previous report selected women with Sex == 0 even though the legacy NHANES data uses 1=male and 2=female.",
+        "The previous report evaluated data associated with the trained model rather than an independent protected test set.",
+        "The previous sentinel FNR ratio of 999 was not a valid fairness statistic."
+    ],
+    "current_interpretation": "No fairness conclusion can be drawn from the removed metrics.",
+    "regeneration_command": "python -m src.audit_fairness",
+    "required_for_valid_conclusion": "A retrained model evaluated once on an independent test cohort with subgroup uncertainty."
+}

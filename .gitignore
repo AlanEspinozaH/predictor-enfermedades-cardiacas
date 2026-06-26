@@ -1,0 +1,35 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Local environments and secrets
+.venv/
+venv/
+.env
+.env.*
+
+# Logs and temporary outputs
+*.log
+*.tmp
+*.bak
+.ipynb_checkpoints/
+.DS_Store
+Thumbs.db
+Summary Plot.png
+external_predictions.csv
+results/
+
+# Raw or reproducible data artifacts
+data/01_raw/
+data/02_processed/nhanes_heart_attack_modeling_raw.parquet
+data/02_processed/nhanes_heart_attack_modeling_raw.provenance.json
+data/02_intermediate/nhanes_heart_attack_modeling.parquet
+data/02_intermediate/nhanes_heart_attack_modeling.provenance.json
+
+# Training candidates require review before versioning
+models/candidates/

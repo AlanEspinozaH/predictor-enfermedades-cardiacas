@@ -1,0 +1,14 @@
+.git
+.github
+.pytest_cache
+__pycache__
+*.py[cod]
+*.log
+.venv
+.env
+notebooks
+docs
+tests
+src/tests
+data
+models/candidates

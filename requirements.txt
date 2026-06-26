@@ -1,0 +1,23 @@
+# Python 3.10
+# Known-good versions used to run the Streamlit application and load the
+# serialized PyCaret/XGBoost pipeline.
+
+numpy==1.26.4
+pandas==2.1.4
+scipy==1.11.4
+scikit-learn==1.4.2
+joblib==1.3.2
+pyarrow==21.0.0
+pydantic==2.12.4
+
+pycaret==3.3.2
+xgboost==2.1.3
+lightgbm==4.6.0
+
+streamlit==1.51.0
+shap==0.49.1
+
+matplotlib==3.7.5
+seaborn==0.13.2
+
+
