@@ -1,505 +1,231 @@
-# Instalación en Windows 11
+# Instalación y ejecución de CardioHistory ML
 
-Esta guía permite instalar, verificar y ejecutar el proyecto en un equipo nuevo con Windows 11.
+Esta guía cubre el entorno principal del proyecto: Windows 11, PowerShell,
+Conda y Python 3.10. CardioHistory ML es un prototipo académico; su salida no es
+un diagnóstico ni una recomendación clínica.
 
-> **Alcance:** este repositorio es un prototipo académico. No constituye un sistema de diagnóstico ni una herramienta clínica validada.
+## 1. Requisitos
 
----
+- Windows 11 y PowerShell.
+- Git para obtener el repositorio.
+- Miniconda o Anaconda.
+- Python 3.10 dentro del entorno `heart-ml`.
+- Un navegador moderno para Streamlit.
 
-## 1. Requisitos previos
-
-Instala estas herramientas antes de continuar:
-
-1. **Git para Windows**  
-   Se utiliza para clonar el repositorio.
-
-2. **Miniconda o Anaconda**  
-   Se recomienda Miniconda por ser más ligera.
-
-3. **PowerShell**  
-   Windows 11 ya lo incluye.
-
-4. **Navegador web moderno**  
-   Chrome, Edge o Firefox.
-
-### Comprobar Git
-
-Abre PowerShell y ejecuta:
+Comprueba las herramientas:
 
 ```powershell
 git --version
-```
-
-Debe mostrar una versión de Git. Si el comando no existe, instala Git para Windows y vuelve a abrir PowerShell.
-
-### Comprobar Conda
-
-```powershell
 conda --version
 ```
 
-Si `conda` no se reconoce, abre **Anaconda Prompt** o ejecuta:
-
-```powershell
-conda init powershell
-```
-
-Cierra y abre PowerShell después de inicializarlo.
-
----
+Si PowerShell no reconoce Conda, abre Anaconda Prompt o ejecuta `conda init
+powershell`, cierra la terminal y vuelve a abrirla.
 
 ## 2. Obtener el proyecto
 
-### Opción A — Clonar desde GitHub
-
-En GitHub, abre el botón **Code**, copia la URL HTTPS y ejecuta:
-
 ```powershell
-cd C:\
-New-Item -ItemType Directory -Force C:\dev | Out-Null
-cd C:\dev
-
 git clone <URL_DEL_REPOSITORIO>
 cd <NOMBRE_DE_LA_CARPETA_CLONADA>
 ```
 
-Ejemplo:
+Todos los comandos siguientes se ejecutan desde la raíz. Confírmala con:
 
 ```powershell
-git clone https://github.com/usuario/Heart-Disease-Prediction-ML.git
-cd Heart-Disease-Prediction-ML
+Test-Path .\pyproject.toml
+Test-Path .\src\app.py
+Test-Path .\models\model_manifest.json
 ```
 
-### Opción B — Descargar el ZIP
+Los tres resultados deben ser `True`.
 
-1. En GitHub, selecciona **Code > Download ZIP**.
-2. Descomprime el archivo en una ruta corta, por ejemplo:
+## 3. Crear o activar el entorno Conda
 
-```text
-C:\dev\Heart-Disease-Prediction-ML
-```
-
-3. Entra en la carpeta desde PowerShell:
-
-```powershell
-cd "C:\dev\Heart-Disease-Prediction-ML"
-```
-
-> No ejecutes los comandos desde una carpeta exterior ni desde una copia anidada del repositorio.
-
----
-
-## 3. Confirmar que estás en la raíz correcta
-
-Ejecuta:
-
-```powershell
-Get-Location
-
-Test-Path ".\pyproject.toml"
-Test-Path ".\src\app.py"
-Test-Path ".\tests"
-Test-Path ".\models\best_pipeline.pkl"
-```
-
-Los cuatro comandos `Test-Path` deben devolver:
-
-```text
-True
-```
-
-La raíz del proyecto debe contener, como mínimo:
-
-```text
-.streamlit\
-data\
-docs\
-models\
-src\
-tests\
-pyproject.toml
-requirements.txt
-requirements-dev.txt
-README.md
-```
-
----
-
-## 4. Crear el entorno Conda
-
-El proyecto debe ejecutarse con **Python 3.10.x** por compatibilidad con PyCaret y con el modelo serializado.
+Si el entorno no existe, créalo una sola vez:
 
 ```powershell
 conda create -n heart-ml python=3.10 -y
-conda activate heart-ml
 ```
 
-Comprueba el entorno:
+Al iniciar una sesión de trabajo, activa el entorno y confirma el intérprete
+antes de ejecutar cualquier comando Python:
 
 ```powershell
+conda activate heart-ml
 python --version
 where.exe python
 ```
 
-La versión debe comenzar con:
+La versión debe comenzar con `Python 3.10` y la ruta debe pertenecer a
+`envs\heart-ml`.
 
-```text
-Python 3.10
-```
+## 4. Instalar dependencias
 
-La ruta de Python debe apuntar al entorno `heart-ml`.
-
----
-
-## 5. Instalar las dependencias
-
-Actualiza las herramientas básicas de instalación:
-
-```powershell
-python -m pip install --upgrade pip setuptools wheel
-```
-
-Instala las dependencias de ejecución:
+Para ejecutar Streamlit y realizar inferencia:
 
 ```powershell
 python -m pip install -r requirements.txt
-```
-
-Instala las dependencias de desarrollo y pruebas:
-
-```powershell
-python -m pip install -r requirements-dev.txt
-```
-
-Comprueba que no existan dependencias rotas:
-
-```powershell
 python -m pip check
 ```
 
-Resultado esperado:
-
-```text
-No broken requirements found.
-```
-
----
-
-## 6. Verificar los artefactos necesarios
-
-La aplicación requiere estos archivos:
+Para desarrollo, análisis y pruebas instala en su lugar el conjunto ampliado:
 
 ```powershell
-Test-Path ".\models\best_pipeline.pkl"
-Test-Path ".\models\model_config.json"
-Test-Path ".\models\model_manifest.json"
-Test-Path ".\data\02_intermediate\process_data.parquet"
+python -m pip install -r requirements-dev.txt
+python -m pip check
 ```
 
-Todos deben devolver:
+`requirements-dev.txt` incluye `requirements.txt`. No se necesitan archivos de
+requisitos específicos de Windows.
 
-```text
-True
-```
+## 5. Artefactos de inferencia y datos
 
-Si alguno falta, la descarga o el clon del repositorio está incompleto. Si el proyecto utiliza Git LFS, ejecuta:
+`models/model_manifest.json` es el registro canónico. En la versión actual
+declara el pipeline y la configuración siguientes:
 
 ```powershell
-git lfs install
-git lfs pull
+Test-Path .\models\model_manifest.json
+Test-Path .\models\best_pipeline.pkl
+Test-Path .\models\model_config.json
 ```
 
----
+Los tres resultados deben ser `True`. La aplicación resuelve esas rutas desde
+el manifiesto y verifica los hashes SHA-256 del modelo y de la configuración
+antes de deserializar. No cargues pickles obtenidos de fuentes no confiables.
 
-## 7. Ejecutar las pruebas
+Los Parquet pertenecen a flujos de análisis, validación o entrenamiento. No son
+necesarios para abrir Streamlit ni ejecutar inferencia. En particular,
+`data/02_intermediate/process_data.parquet` es un artefacto histórico de
+trazabilidad, no una cohorte corregida para reentrenar.
 
-### Pruebas de integración del artefacto real
+La variable interna `Glucose` corresponde a **Glucosa sérica del perfil
+bioquímico NHANES (`LBXSGL`)**.
+
+## 6. Verificación rápida
+
+Con el entorno activo:
+
+```powershell
+python scripts/smoke_test.py
+```
+
+El comando verifica la integridad de los artefactos, carga el pipeline mediante
+el registro canónico, valida una entrada sintética de 27 variables, comprueba las
+31 características esperadas por el estimador y ejecuta la clasificación con el
+umbral del manifiesto. No usa el Parquet ni datos de una persona real.
+
+Una ejecución correcta termina con:
+
+```text
+SMOKE TEST PASSED
+```
+
+## 7. Ejecutar Streamlit
+
+```powershell
+python -m streamlit run src/app.py
+```
+
+La URL local predeterminada es `http://localhost:8501`. Para usar otro puerto:
+
+```powershell
+python -m streamlit run src/app.py --server.port 8502
+```
+
+La interfaz debe mostrar las 27 entradas, incluir `HDL`, excluir
+`DiastolicBP` y describir el resultado como clasificación académica de
+antecedente autorreportado de infarto.
+
+## 8. Pruebas
+
+Las pruebas no integradas no deserializan el artefacto real:
+
+```powershell
+python -m pytest -q -m "not integration"
+```
+
+Las pruebas de integración cargan el pipeline real y ejercitan la aplicación:
 
 ```powershell
 python -m pytest -q -m integration
 ```
 
-Estas pruebas cargan el modelo real y verifican su compatibilidad con la aplicación.
-
-### Suite completa
-
-```powershell
-python -m pytest -q
-```
-
-Todas las pruebas deben terminar aprobadas.
-
-En la línea base validada al redactar esta guía se obtuvo:
+La línea base verificada con Python 3.10.20 es:
 
 ```text
-3 passed en integración
-47 passed en la suite completa
+44 passed, 3 deselected
+3 passed, 44 deselected
 ```
 
-El número exacto puede aumentar en versiones posteriores; el criterio correcto es que no existan errores ni fallos.
+Estos resultados verifican compatibilidad y comportamiento técnico. No son
+métricas de desempeño predictivo ni evidencia de validación clínica.
 
-Las advertencias de dependencias antiguas no equivalen necesariamente a una prueba fallida. Revisa el resumen final de pytest.
+## 9. Docker como procedimiento no validado
 
----
-
-## 8. Ejecutar la aplicación
-
-Desde la raíz del repositorio y con `heart-ml` activado:
+El repositorio incluye `Dockerfile` con Python 3.10 y un `HEALTHCHECK`. El
+procedimiento documentado es:
 
 ```powershell
-python -m streamlit run ".\src\app.py"
+docker build -t cardiohistory-ml .
+docker run --rm -p 8501:8501 cardiohistory-ml
 ```
 
-Streamlit mostrará una dirección similar a:
+Después se consultaría `http://localhost:8501/_stcore/health`. Este procedimiento
+aún no se presenta como validado mediante una construcción y ejecución
+satisfactorias en Windows 11.
 
-```text
-Local URL: http://localhost:8501
-```
-
-Abre en el navegador:
-
-```text
-http://localhost:8501
-```
-
-La aplicación debe:
-
-- cargar sin errores de contrato;
-- mostrar el formulario completo;
-- incluir el campo `HDL`;
-- no incluir `DiastolicBP`;
-- permitir ejecutar una clasificación de prueba.
-
-Para detener Streamlit, vuelve a PowerShell y presiona:
-
-```text
-Ctrl + C
-```
-
-### Si el puerto 8501 está ocupado
-
-```powershell
-python -m streamlit run ".\src\app.py" --server.port 8502
-```
-
-Después abre:
-
-```text
-http://localhost:8502
-```
-
-> El aviso del navegador “No es seguro” es normal cuando se abre una aplicación local por HTTP. No significa que la instalación haya fallado.
-
----
-
-## 9. Verificaciones de calidad opcionales
-
-### Ruff
-
-```powershell
-python -m ruff check .
-python -m ruff format --check .
-```
-
-### Pre-commit
-
-Este comando requiere que el proyecto sea un repositorio Git:
-
-```powershell
-python -m pre_commit run --all-files
-```
-
-Si aparece un error indicando que Git no está disponible o que no estás en un repositorio, comprueba:
-
-```powershell
-git --version
-git status
-```
-
----
-
-## 10. Ejecución sin activar Conda
-
-También puedes usar directamente el intérprete del entorno:
-
-```powershell
-$python = "$env:USERPROFILE\anaconda3\envs\heart-ml\python.exe"
-
-& $python -m pip check
-& $python -m pytest -q
-& $python -m streamlit run ".\src\app.py"
-```
-
-En una instalación de Miniconda, la ruta puede ser:
-
-```powershell
-$python = "$env:USERPROFILE\miniconda3\envs\heart-ml\python.exe"
-```
-
-Comprueba primero que exista:
-
-```powershell
-Test-Path $python
-```
-
----
-
-## 11. Problemas frecuentes
+## 10. Problemas frecuentes
 
 ### `conda` no se reconoce
 
-Usa **Anaconda Prompt** o ejecuta:
+Usa Anaconda Prompt o ejecuta `conda init powershell` y reinicia PowerShell.
 
-```powershell
-conda init powershell
-```
-
-Luego reinicia PowerShell.
-
-### `ModuleNotFoundError`
-
-Confirma que el entorno está activo:
+### Se está usando otra versión de Python
 
 ```powershell
 conda activate heart-ml
 python --version
+where.exe python
 ```
 
-Después reinstala las dependencias:
+No cargues el pickle con Python 3.13. El entorno soportado para el artefacto
+actual es Python 3.10.
 
-```powershell
-python -m pip install -r requirements.txt
-python -m pip install -r requirements-dev.txt
-```
+### `ModuleNotFoundError`
 
-### `streamlit` no se reconoce
+Confirma el entorno activo y repite la instalación de
+`requirements-dev.txt`. No instales paquetes individualmente para ocultar una
+instalación incompleta.
 
-No ejecutes `streamlit` directamente. Usa:
+### Falta un artefacto o falla un hash
 
-```powershell
-python -m streamlit run ".\src\app.py"
-```
+Repite las tres comprobaciones de la sección 5. Si el repositorio usa Git LFS,
+ejecuta `git lfs pull`. No reemplaces el modelo ni edites el manifiesto para
+evitar el control de integridad.
 
-### `pytest` encuentra pruebas duplicadas
+### Advertencia de compatibilidad al deserializar
 
-Probablemente hay un repositorio dentro de otro. Desde la raíz:
+PyCaret puede informar diferencias entre dependencias actuales y las usadas al
+serializar. Registra la advertencia y ejecuta el smoke test y las pruebas de
+integración. Una ejecución correcta no convierte el artefacto en portable a
+cualquier versión.
 
-```powershell
-Test-Path ".\Heart-Disease-Prediction-ML"
-Test-Path ".\Heart-Disease-Prediction-ML-main"
-```
+### El puerto 8501 está ocupado
 
-Ambos deberían devolver `False`, salvo que ese nombre corresponda intencionalmente a otra carpeta no relacionada.
-
-### Faltan el modelo o el dataset
-
-Comprueba:
-
-```powershell
-Test-Path ".\models\best_pipeline.pkl"
-Test-Path ".\data\02_intermediate\process_data.parquet"
-```
-
-Si el repositorio usa Git LFS:
-
-```powershell
-git lfs pull
-```
-
-### Advertencia de versiones al cargar el modelo
-
-PyCaret puede mostrar una advertencia si algunas versiones instaladas difieren de las usadas al serializar el modelo. Si las pruebas de integración, la suite completa y la aplicación funcionan, la advertencia no impide necesariamente la ejecución. Debe registrarse y revisarse antes de una publicación productiva.
+Usa el comando con `--server.port 8502` de la sección 7.
 
 ### Error de contrato de características
 
-Actualiza la copia local y repite la instalación:
+No añadas `HeartDisease`, `DiastolicBP` ni columnas de relleno a la entrada.
+Verifica que el repositorio esté completo y ejecuta las pruebas de integración.
+
+## 11. Ejecución con el intérprete absoluto
+
+Cuando no sea posible activar Conda, usa explícitamente el Python del entorno:
 
 ```powershell
-git pull
-python -m pip install -r requirements.txt
-python -m pytest -q -m integration
-```
-
-No añadas manualmente `HeartDisease` a las entradas del formulario ni modifiques el modelo para ocultar el error.
-
----
-
-## 12. Instalación opcional con Docker Desktop
-
-Instala Docker Desktop y comprueba:
-
-```powershell
-docker --version
-```
-
-Desde la raíz del proyecto:
-
-```powershell
-docker build -t nhanes-heart-prototype .
-docker run --rm -p 8501:8501 nhanes-heart-prototype
-```
-
-Abre:
-
-```text
-http://localhost:8501
-```
-
-Detén el contenedor con:
-
-```text
-Ctrl + C
-```
-
-Docker es opcional; la instalación principal recomendada en Windows utiliza Conda.
-
----
-
-## 13. Actualizar una instalación existente
-
-Desde la raíz del repositorio:
-
-```powershell
-git status
-git pull
-conda activate heart-ml
-python -m pip install -r requirements.txt
-python -m pip install -r requirements-dev.txt
-python -m pip check
-python -m pytest -q
-```
-
-Si tienes modificaciones locales, no ejecutes `git pull` sin revisar primero:
-
-```powershell
-git status
-git diff
-```
-
----
-
-## 14. Resumen rápido
-
-```powershell
-git clone <URL_DEL_REPOSITORIO>
-cd <NOMBRE_DE_LA_CARPETA_CLONADA>
-
-conda create -n heart-ml python=3.10 -y
-conda activate heart-ml
-
-python -m pip install --upgrade pip setuptools wheel
-python -m pip install -r requirements.txt
-python -m pip install -r requirements-dev.txt
-
-python -m pip check
-python -m pytest -q -m integration
-python -m pytest -q
-
-python -m streamlit run ".\src\app.py"
-```
-
-Abrir:
-
-```text
-http://localhost:8501
+$python = "$env:USERPROFILE\anaconda3\envs\heart-ml\python.exe"
+& $python --version
+& $python scripts/smoke_test.py
+& $python -m streamlit run src/app.py
 ```

@@ -1,23 +1,39 @@
 # Changelog
 
-## 2026-06-26 — Validación compatible con metadatos PyCaret
+## 2.0.0 — Renovación académica para Inteligencia Artificial
 
-- El validador permite retirar exclusivamente `HeartDisease` de los metadatos externos `pipeline.feature_names_in_`.
-- Cualquier otra característica inesperada, duplicada, ausente o desordenada sigue provocando un error de contrato.
-- Se añadió una comprobación independiente que rechaza `HeartDisease` dentro de `actual_estimator.feature_names_in_`.
-- Streamlit utiliza el mismo cargador validado que las pruebas de integración.
-- Se añadió una prueba de integración que carga `models/best_pipeline.pkl`, construye las 27 entradas canónicas y ejecuta `predict()` y `predict_proba()`.
-- Las 39 pruebas existentes se conservaron; la suite unitaria ampliada contiene 44 pruebas aprobadas en el entorno de revisión.
+- Consolidado el contrato canónico de 27 variables y la verificación del orden
+  de entrada frente al pipeline desplegado.
+- Incorporados el registro de artefactos, la resolución de rutas y la
+  verificación SHA-256 antes de deserializar el pipeline confiable.
+- Caracterizado el estimador final `xgboost.sklearn.XGBClassifier`, su
+  preprocesamiento de 27 a 31 características y su umbral operativo heredado.
+- Corregida la semántica de `Glucose` a glucosa sérica del perfil bioquímico
+  NHANES (`LBXSGL`).
+- Añadido un smoke test de inferencia que reutiliza las interfaces canónicas.
+- Consolidada la documentación de instalación, arquitectura, ficha del modelo y
+  explicación técnica.
+- Delimitado el objetivo a la clasificación de antecedente autorreportado de
+  infarto asociado con `MCQ160E`, sin afirmaciones diagnósticas o prospectivas.
+- Preparada la base documental para una renovación visual posterior; la interfaz
+  no se declara renovada en esta versión.
 
-## 2026-06-26 — Limpieza y corrección estructural
+## 1.1.0 — Compatibilidad del artefacto heredado (2026-06-26)
 
-- Retirados nombres personales, rutas locales, logs, cachés y material histórico.
-- Corregido el contrato de entrada y la semántica de la interfaz.
-- Añadida inferencia directa y validada mediante `predict_proba`.
-- Añadidas métricas compartidas e intervalos Wilson para recall.
-- Corregidos scripts de auditoría y validación externa.
-- Unificada la implementación educativa `XGBoostScratch`.
-- Actualizados Docker, pre-commit, documentación y pruebas.
-- La evaluación del test protegido pasó a ser optativa y explícita; los candidatos se comparan sin consultarlo.
-- El pipeline finalizado se evalúa antes de guardarlo, de modo que métricas y artefacto correspondan al mismo objeto entrenado.
-- Se precisó la semántica NHANES de actividad recreativa vigorosa y consumo de alcohol en los últimos 12 meses.
+- Normalizado exclusivamente `HeartDisease` cuando aparece como metadato externo
+  de PyCaret, manteniéndolo fuera de las características del estimador.
+- Unificada la carga validada del artefacto entre Streamlit y las pruebas de
+  integración.
+- Añadidas comprobaciones del contrato externo de 27 variables y de las 31
+  características transformadas.
+
+## 1.0.0 — Saneamiento estructural (2026-06-26)
+
+- Retirados datos personales, rutas locales, logs, cachés y material histórico
+  incompatible con el flujo vigente.
+- Corregidos el contrato de entrada, la codificación NHANES y el objetivo basado
+  exclusivamente en `MCQ160E`.
+- Separados los candidatos de entrenamiento del artefacto desplegado y de la
+  evaluación protegida.
+- Unificada la implementación educativa `XGBoostScratch` y actualizadas pruebas y
+  controles de calidad.

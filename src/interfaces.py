@@ -57,7 +57,12 @@ class InputData(BaseModel):
     LDL: float = Field(..., ge=30, le=300, description="LDL cholesterol (mg/dL)")
     HDL: float = Field(..., ge=10, le=150, description="HDL cholesterol (mg/dL)")
     HbA1c: float = Field(..., ge=4.0, le=15.0, description="Glycated hemoglobin (%)")
-    Glucose: float = Field(..., ge=50, le=300, description="Fasting glucose (mg/dL)")
+    Glucose: float = Field(
+        ...,
+        ge=50,
+        le=300,
+        description="Glucosa sérica del perfil bioquímico NHANES (LBXSGL), mg/dL",
+    )
     Creatinine: float = Field(
         ..., ge=0.4, le=5.0, description="Serum creatinine (mg/dL)"
     )
