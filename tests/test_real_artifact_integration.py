@@ -172,7 +172,24 @@ def test_streamlit_complete_form_submission_uses_stable_feature_keys():
     assert "Ficha técnica del despliegue" in sidebar_text
     assert "Modelo:" in sidebar_text
     assert "XGBClassifier" in sidebar_text
+    assert "Estado: prototipo académico desplegado" in sidebar_text.replace("*", "")
+    assert "Entrada:" in sidebar_text
+    assert "27" in sidebar_text
+    assert "Transformación:" in sidebar_text
+    assert "31" in sidebar_text
+    assert "Clase positiva:" in sidebar_text
+    assert "Umbral operativo:" in sidebar_text
+    assert "0.20" in sidebar_text
     assert "Integridad verificada mediante manifiesto y SHA-256" in sidebar_text
+
+    initial_rendered_text = "\n".join((initial_text, sidebar_text)).casefold()
+    for forbidden in (
+        "prototipo heredado",
+        "prototipo académico heredado",
+        "umbral heredado",
+        "nhanes-heart-disease-pycaret-legacy-v1",
+    ):
+        assert forbidden not in initial_rendered_text
 
     assert [tab.label for tab in app_test.tabs] == [
         "A. Perfil y contexto",
@@ -203,8 +220,7 @@ def test_streamlit_complete_form_submission_uses_stable_feature_keys():
 
     glucose_widget = _element_by_key(app_test.number_input, "input_Glucose")
     assert (
-        "Glucosa sérica del perfil bioquímico NHANES (LBXSGL)"
-        in glucose_widget.label
+        "Glucosa sérica del perfil bioquímico NHANES (LBXSGL)" in glucose_widget.label
     )
 
     submit_button = _element_by_key(
@@ -243,9 +259,7 @@ def test_streamlit_complete_form_submission_uses_stable_feature_keys():
         )
 
     _element_by_key(app_test.radio, "input_Sex").set_value("1 — Hombre")
-    _element_by_key(app_test.selectbox, "input_Race").set_value(
-        "3 — Blanco no hispano"
-    )
+    _element_by_key(app_test.selectbox, "input_Race").set_value("3 — Blanco no hispano")
     _element_by_key(app_test.selectbox, "input_Education").set_value(
         "4 — Estudios superiores incompletos"
     )
@@ -267,8 +281,14 @@ def test_streamlit_complete_form_submission_uses_stable_feature_keys():
     assert "no es diagnóstico" in result_text
     assert "Esta salida no confirma ni descarta una condición médica" in result_text
 
-    normalized_text = result_text.casefold()
+    normalized_text = "\n".join(
+        (result_text, _rendered_text(app_test.sidebar))
+    ).casefold()
     for forbidden in (
+        "prototipo heredado",
+        "prototipo académico heredado",
+        "umbral heredado",
+        "nhanes-heart-disease-pycaret-legacy-v1",
         "riesgo futuro",
         "probabilidad de sufrir un infarto",
         "traceback",

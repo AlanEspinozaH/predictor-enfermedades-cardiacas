@@ -225,8 +225,8 @@ $$
 El umbral `0.20` es menor que el convencional `0.50`, de modo que, para los
 mismos scores, puede clasificar como positivas más entradas. Esto puede cambiar el
 balance entre falsos positivos y falsos negativos. No prueba que el umbral sea
-adecuado: el manifiesto lo identifica como heredado y no validado
-independientemente.
+adecuado: el valor operativo está definido en el manifiesto y no cuenta con
+validación independiente demostrada.
 
 Cambiar el umbral no modifica árboles, hojas ni scores y no reentrena el modelo;
 solo cambia la decisión posterior.
@@ -241,7 +241,7 @@ una garantía de corrección.
 Cuantificar incertidumbre requeriría métodos y evaluación adicionales, por
 ejemplo intervalos por remuestreo para métricas, análisis de calibración,
 variación entre modelos y validación externa. Ninguna de esas evidencias está
-demostrada para el artefacto heredado.
+demostrada para el artefacto desplegado.
 
 ## 11. Comparación con redes neuronales
 

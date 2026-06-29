@@ -9,7 +9,7 @@ NHANES**
 |---|---|
 | Nombre visible | CardioHistory ML |
 | `model_id` | `nhanes-heart-disease-pycaret-legacy-v1` |
-| Estado | `legacy_prototype_deployed` |
+| `status` interno del manifiesto | `legacy_prototype_deployed` |
 | Ruta | `models/best_pipeline.pkl` |
 | Formato | Pipeline PyCaret serializado (`pycaret_pickle`) |
 | Estimador final | `xgboost.sklearn.XGBClassifier` |
@@ -17,7 +17,7 @@ NHANES**
 | Registro | `models/model_manifest.json` |
 | Entorno comprobado | Python 3.10.20 |
 
-El artefacto se considera un prototipo académico heredado. Su estado de
+El artefacto se considera un prototipo académico desplegado. Su estado de
 despliegue significa que es el artefacto seleccionado por el manifiesto, no que
 esté aprobado para uso clínico.
 
@@ -135,7 +135,7 @@ La clasificación usa:
 clase = 1 si score >= 0.20; en otro caso, clase = 0
 ```
 
-`0.20` es el umbral operativo heredado del manifiesto. Es menor que el umbral
+`0.20` es el umbral operativo definido en el manifiesto. Es menor que el umbral
 convencional `0.50`, pero no existe evidencia independiente suficiente para
 justificarlo como óptimo. El score no debe interpretarse como calibrado ni como
 riesgo clínico.

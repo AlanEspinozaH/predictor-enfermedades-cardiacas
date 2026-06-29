@@ -19,6 +19,8 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 
 try:
+    from src.artifact_registry import sha256_file
+    from src.candidate_registry import atomic_write_json
     from src.feature_contract import (
         MINIMUM_ELIGIBLE_AGE,
         MODEL_INPUT_FEATURES,
@@ -26,6 +28,8 @@ try:
         TARGET_COLUMN,
     )
 except ModuleNotFoundError:
+    from artifact_registry import sha256_file
+    from candidate_registry import atomic_write_json
     from feature_contract import (
         MINIMUM_ELIGIBLE_AGE,
         MODEL_INPUT_FEATURES,
@@ -108,6 +112,25 @@ class DataSplit:
     metadata: Mapping[str, Any]
 
 
+class DataProvenanceError(ValueError):
+    """Raised with a stable category when external provenance is invalid."""
+
+    def __init__(self, code: str, message: str) -> None:
+        self.code = code
+        super().__init__(f"{code}: {message}")
+
+
+@dataclass(frozen=True)
+class ExternalDataProvenance:
+    """Verified dataset identity and the scope it permits callers to claim."""
+
+    metadata: Mapping[str, Any] | None
+    path: Path | None
+    dataset_sha256: str
+    provenance_status: str
+    validation_scope: str
+
+
 def provenance_path_for(data_path: str | Path) -> Path:
     """Return the sidecar provenance path for a dataset artifact."""
 
@@ -120,9 +143,7 @@ def write_dataset_provenance(
 ) -> Path:
     """Write a deterministic JSON sidecar next to a dataset."""
 
-    output = provenance_path_for(data_path)
-    output.write_text(json.dumps(dict(metadata), indent=4), encoding="utf-8")
-    return output
+    return atomic_write_json(provenance_path_for(data_path), metadata)
 
 
 def load_training_provenance(data_path: str | Path) -> Mapping[str, Any]:
@@ -155,6 +176,197 @@ def load_training_provenance(data_path: str | Path) -> Mapping[str, Any]:
     if errors:
         raise ValueError("Training provenance rejected: " + "; ".join(errors))
     return metadata
+
+
+def load_external_data_provenance(
+    data_path: str | Path,
+    provenance_path: str | Path | None = None,
+) -> ExternalDataProvenance:
+    """Verify an optional external-data sidecar before the dataset is read.
+
+    A missing implicit sidecar permits only an unverified external evaluation.
+    An explicitly requested sidecar must exist and be structurally valid.
+    """
+
+    selected_data = Path(data_path).expanduser().resolve()
+    if not selected_data.is_file():
+        raise FileNotFoundError(f"External dataset not found: {selected_data}")
+
+    actual_hash = sha256_file(selected_data)
+    selected_provenance = (
+        Path(provenance_path).expanduser().resolve()
+        if provenance_path is not None
+        else provenance_path_for(selected_data)
+    )
+    if not selected_provenance.is_file():
+        if provenance_path is not None:
+            raise DataProvenanceError(
+                "unverified_provenance",
+                f"requested provenance sidecar not found: {selected_provenance}",
+            )
+        return ExternalDataProvenance(
+            metadata=None,
+            path=None,
+            dataset_sha256=actual_hash,
+            provenance_status="unverified",
+            validation_scope="external_unverified",
+        )
+
+    try:
+        loaded = json.loads(selected_provenance.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise DataProvenanceError(
+            "unverified_provenance",
+            f"invalid provenance JSON: {selected_provenance}",
+        ) from exc
+    if not isinstance(loaded, Mapping):
+        raise DataProvenanceError(
+            "unverified_provenance", "provenance sidecar must contain an object"
+        )
+    if type(loaded.get("schema_version")) is not int or loaded["schema_version"] != 1:
+        raise DataProvenanceError(
+            "unsupported_schema", "external provenance schema_version must be 1"
+        )
+
+    dataset = loaded.get("dataset")
+    if not isinstance(dataset, Mapping):
+        raise DataProvenanceError(
+            "unverified_provenance", "provenance field 'dataset' must be an object"
+        )
+    identity = dataset.get("path", dataset.get("identifier"))
+    if not isinstance(identity, str) or not identity.strip():
+        raise DataProvenanceError(
+            "unverified_provenance",
+            "dataset provenance requires a path or identifier",
+        )
+    expected_hash = dataset.get("sha256")
+    if (
+        not isinstance(expected_hash, str)
+        or re.fullmatch(r"[0-9a-fA-F]{64}", expected_hash) is None
+    ):
+        raise DataProvenanceError(
+            "unverified_provenance", "dataset.sha256 must be a SHA-256 digest"
+        )
+    if expected_hash.lower() != actual_hash.lower():
+        raise DataProvenanceError(
+            "hash_mismatch",
+            f"external dataset expected {expected_hash}, found {actual_hash}",
+        )
+
+    source = loaded.get("source")
+    if not isinstance(source, str) or not source.strip():
+        raise DataProvenanceError(
+            "unverified_provenance", "external provenance requires a source"
+        )
+    for optional_field in ("cycles", "period"):
+        value = loaded.get(optional_field)
+        if value is not None and not isinstance(value, (str, list)):
+            raise DataProvenanceError(
+                "unverified_provenance",
+                f"provenance field '{optional_field}' must be text or a list",
+            )
+
+    independent = loaded.get("independent_from_training")
+    if independent is not None and not isinstance(independent, bool):
+        raise DataProvenanceError(
+            "unverified_provenance",
+            "independent_from_training must be boolean when declared",
+        )
+    if independent is True:
+        scope = "external_independent"
+    elif independent is False:
+        scope = "internal_evaluation"
+    else:
+        scope = "technical_validation"
+
+    return ExternalDataProvenance(
+        metadata=loaded,
+        path=selected_provenance,
+        dataset_sha256=actual_hash,
+        provenance_status="verified",
+        validation_scope=scope,
+    )
+
+
+def validate_external_provenance_frame(
+    provenance: ExternalDataProvenance,
+    data: pd.DataFrame,
+    *,
+    target_present: bool,
+) -> bool:
+    """Verify declared row/column identity and the MCQ160E target definition."""
+
+    metadata = provenance.metadata
+    if metadata is None:
+        return False
+
+    dataset = metadata["dataset"]
+    declared_rows = dataset.get("row_count")
+    if declared_rows is not None:
+        if type(declared_rows) is not int or declared_rows < 0:
+            raise DataProvenanceError(
+                "unverified_provenance",
+                "dataset.row_count must be a non-negative integer",
+            )
+        if declared_rows != len(data):
+            raise DataProvenanceError(
+                "unverified_provenance",
+                f"dataset row count expected {declared_rows}, found {len(data)}",
+            )
+
+    declared_columns = dataset.get("columns")
+    if declared_columns is not None:
+        if not isinstance(declared_columns, list) or not all(
+            isinstance(column, str) for column in declared_columns
+        ):
+            raise DataProvenanceError(
+                "unverified_provenance", "dataset.columns must be a list of names"
+            )
+        if tuple(declared_columns) != tuple(str(column) for column in data.columns):
+            raise DataProvenanceError(
+                "feature_contract_mismatch",
+                "dataset columns do not match the provenance declaration",
+            )
+
+    declared_contract = metadata.get("feature_contract")
+    if declared_contract is not None:
+        if not isinstance(declared_contract, Mapping):
+            raise DataProvenanceError(
+                "feature_contract_mismatch", "feature_contract must be an object"
+            )
+        declared_features = declared_contract.get("input_features")
+        if not isinstance(declared_features, list):
+            raise DataProvenanceError(
+                "feature_contract_mismatch",
+                "feature_contract.input_features must be a list",
+            )
+        try:
+            from src.feature_contract import validate_feature_names
+        except ModuleNotFoundError:
+            from feature_contract import validate_feature_names
+        try:
+            validate_feature_names(declared_features)
+        except ValueError as exc:
+            raise DataProvenanceError("feature_contract_mismatch", str(exc)) from exc
+
+    if not target_present:
+        return False
+
+    target = metadata.get("target")
+    if not isinstance(target, Mapping):
+        return False
+    mapping = target.get("mapping")
+    excluded = target.get("excluded")
+    definition = target.get("definition")
+    return bool(
+        target.get("column") == TARGET_COLUMN
+        and target.get("source") == TARGET_SOURCE_COLUMN
+        and mapping == {"1": 1, "2": 0}
+        and isinstance(excluded, list)
+        and {str(value).lower() for value in excluded} >= {"other", "missing"}
+        and isinstance(definition, str)
+        and definition.strip()
+    )
 
 
 def read_tabular_data(source: str | Path) -> pd.DataFrame:

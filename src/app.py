@@ -1,4 +1,4 @@
-"""Streamlit interface for the explicitly deployed legacy academic model."""
+"""Streamlit interface for the explicitly deployed academic model."""
 
 from __future__ import annotations
 
@@ -84,32 +84,21 @@ except Exception:
 threshold = artifacts.decision_threshold
 pipeline_estimator = deployed_estimator(model.model)
 estimator_name = type(pipeline_estimator).__name__
-transformed_features = tuple(
-    str(name) for name in pipeline_estimator.feature_names_in_
-)
-manifest_status = str(artifacts.manifest.get("status", "no declarado"))
-
+transformed_features = tuple(str(name) for name in pipeline_estimator.feature_names_in_)
 with st.sidebar:
     st.header("Ficha técnica del despliegue")
     st.markdown(f"**Modelo:** {estimator_name}")
-    st.markdown("**Estado:** prototipo heredado")
-    st.caption(f"Identificador: {artifacts.model_id}")
-    st.caption(f"Estado del manifiesto: {manifest_status}")
+    st.markdown("**Estado:** prototipo académico desplegado")
     st.markdown(f"**Entrada:** {len(expected_features)} variables")
-    st.markdown(
-        f"**Transformación:** {len(transformed_features)} características"
-    )
+    st.markdown(f"**Transformación:** {len(transformed_features)} características")
     st.markdown("**Clase positiva:** 1")
     st.markdown(f"**Umbral operativo:** {threshold:.2f}")
     st.info("Integridad verificada mediante manifiesto y SHA-256.")
-    st.caption(
-        "El umbral es heredado y no cuenta con validación independiente."
-    )
+    st.caption("El umbral operativo no cuenta con validación independiente demostrada.")
 
 st.title("CardioHistory ML")
 st.subheader(
-    "Clasificación explicable de antecedente autorreportado de infarto con "
-    "datos NHANES"
+    "Clasificación explicable de antecedente autorreportado de infarto con datos NHANES"
 )
 st.write(
     "Panel académico para observar un flujo reproducible de inferencia tabular "
@@ -437,7 +426,8 @@ if submitted:
             with threshold_column:
                 st.metric("Umbral operativo", f"{threshold:.2f}")
                 st.caption(
-                    "Umbral heredado sin validación independiente demostrada."
+                    "Umbral operativo definido en el manifiesto, sin validación "
+                    "independiente demostrada."
                 )
 
             st.markdown(
@@ -477,7 +467,7 @@ with st.expander("Cómo funciona el modelo"):
 with st.expander("Alcance y limitaciones"):
     st.write(
         "El objetivo es un antecedente autorreportado asociado con MCQ160E. El "
-        "modelo no predice eventos futuros; el umbral es heredado, no se ha "
-        "demostrado calibración ni validación clínica, y el uso previsto es "
-        "exclusivamente académico."
+        "modelo no predice eventos futuros. El umbral operativo está definido "
+        "en el manifiesto, no se ha demostrado calibración ni validación clínica "
+        "y el uso previsto es exclusivamente académico."
     )

@@ -1,5 +1,7 @@
 """Minimal end-to-end smoke test for the deployed academic classifier."""
 
+# ruff: noqa: E402 -- Direct execution requires the project-root bootstrap below.
+
 from __future__ import annotations
 
 import math

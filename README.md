@@ -38,9 +38,9 @@ medición formal de incertidumbre.
 | Entrada externa | 27 variables canónicas |
 | Entrada transformada | 31 características |
 | Clase positiva | `1` |
-| Umbral operativo | `0.20`, heredado y no validado independientemente |
+| Umbral operativo | `0.20`, definido en el manifiesto y sin validación independiente |
 
-El artefacto desplegado es un prototipo heredado. La inferencia y la integridad
+El artefacto desplegado corresponde a un prototipo académico desplegado. La inferencia y la integridad
 técnica se han verificado, pero no existen métricas históricas reproducibles
 suficientes para presentarlo como superior a otros modelos ni como validado para
 uso clínico.
@@ -103,11 +103,40 @@ python -m pytest -q -m "not integration"
 python -m pytest -q -m integration
 ```
 
-La línea base comprobada con Python 3.10.20 es de 44 pruebas no integradas y 3
+La línea base comprobada con Python 3.10.20 es de 96 pruebas no integradas y 4
 pruebas de integración aprobadas. Estas comprobaciones demuestran funcionamiento
 técnico, no desempeño predictivo ni validez clínica.
 
 La guía completa está en [Instalación](docs/INSTALLATION.md).
+
+### Validación técnica trazable
+
+El modo desplegado resuelve y verifica `models/model_manifest.json`:
+
+```powershell
+python -m src.validate_external `
+  --data-path ruta\cohorte.csv `
+  --output-path results\validation.json `
+  --predictions-path results\predictions.csv
+```
+
+Un candidato requiere su manifiesto v1 completo; no se aceptan pickles por una
+ruta arbitraria:
+
+```powershell
+python -m src.validate_external `
+  --candidate-manifest models\candidates\<run_id>\candidate_manifest.json `
+  --data-path ruta\cohorte.csv `
+  --output-path results\validation.json `
+  --predictions-path results\predictions.csv
+```
+
+No existe fallback silencioso a `0.50`: el umbral procede del manifiesto o de
+un `--threshold` explícito que queda registrado. Sin un sidecar de procedencia
+verificable, el resultado se clasifica como `external_unverified`. Incluso con
+procedencia declarada como independiente, el programa registra que no realizó
+una auditoría independiente. Estas salidas son evidencia técnica, no validación
+clínica.
 
 ## Artefactos y datos
 

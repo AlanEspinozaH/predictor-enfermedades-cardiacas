@@ -153,14 +153,52 @@ python -m pytest -q -m integration
 La línea base verificada con Python 3.10.20 es:
 
 ```text
-44 passed, 3 deselected
-3 passed, 44 deselected
+96 passed, 4 deselected
+4 passed, 96 deselected
 ```
 
 Estos resultados verifican compatibilidad y comportamiento técnico. No son
 métricas de desempeño predictivo ni evidencia de validación clínica.
 
-## 9. Docker como procedimiento no validado
+## 9. Validación técnica trazable
+
+Consulta primero las opciones disponibles:
+
+```powershell
+python -m src.validate_external --help
+python -m src.train_pycaret --help
+```
+
+Modo desplegado:
+
+```powershell
+python -m src.validate_external `
+  --data-path ruta\cohorte.csv `
+  --output-path results\validation.json `
+  --predictions-path results\predictions.csv
+```
+
+Modo candidato:
+
+```powershell
+python -m src.validate_external `
+  --candidate-manifest models\candidates\<run_id>\candidate_manifest.json `
+  --data-path ruta\cohorte.csv `
+  --output-path results\validation.json `
+  --predictions-path results\predictions.csv
+```
+
+Si existe, el sidecar predeterminado es `ruta\cohorte.provenance.json`. Debe
+declarar esquema, identidad y SHA-256 del dataset; con etiquetas también puede
+declarar la definición MCQ160E. Sin procedencia verificable se generan scores y,
+si corresponde, métricas, pero el scope permanece `external_unverified`.
+
+El JSON principal se publica en `--output-path` y contiene nombre y hash del CSV
+de `--predictions-path`. No son resultados de validación clínica. No uses
+`--model-path`: los candidatos requieren manifiesto para verificar identidad,
+contrato, procedencia y evidencia de selección.
+
+## 10. Docker como procedimiento no validado
 
 El repositorio incluye `Dockerfile` con Python 3.10 y un `HEALTHCHECK`. El
 procedimiento documentado es:
@@ -174,7 +212,7 @@ Después se consultaría `http://localhost:8501/_stcore/health`. Este procedimie
 aún no se presenta como validado mediante una construcción y ejecución
 satisfactorias en Windows 11.
 
-## 10. Problemas frecuentes
+## 11. Problemas frecuentes
 
 ### `conda` no se reconoce
 
@@ -203,6 +241,14 @@ Repite las tres comprobaciones de la sección 5. Si el repositorio usa Git LFS,
 ejecuta `git lfs pull`. No reemplaces el modelo ni edites el manifiesto para
 evitar el control de integridad.
 
+### Falla un manifiesto candidato o la procedencia
+
+Los errores `invalid_manifest`, `unsafe_path`, `missing_component` y
+`hash_mismatch` requieren corregir o regenerar el conjunto candidato; no edites
+el hash para ocultar la diferencia. `unverified_provenance` limita la afirmación
+que puede hacerse sobre la cohorte y no debe presentarse como independencia
+demostrada.
+
 ### Advertencia de compatibilidad al deserializar
 
 PyCaret puede informar diferencias entre dependencias actuales y las usadas al
@@ -219,7 +265,7 @@ Usa el comando con `--server.port 8502` de la sección 7.
 No añadas `HeartDisease`, `DiastolicBP` ni columnas de relleno a la entrada.
 Verifica que el repositorio esté completo y ejecuta las pruebas de integración.
 
-## 11. Ejecución con el intérprete absoluto
+## 12. Ejecución con el intérprete absoluto
 
 Cuando no sea posible activar Conda, usa explícitamente el Python del entorno:
 
