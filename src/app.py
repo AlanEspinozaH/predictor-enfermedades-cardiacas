@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import logging
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -22,11 +24,14 @@ from src.artifact_registry import (
     load_deployed_artifacts,
     load_validated_pycaret_pipeline,
 )
+from src.decision import classify_score
 from src.feature_contract import (
     MINIMUM_ELIGIBLE_AGE,
     feature_names_from_config,
     validate_feature_names,
 )
+
+LOGGER = logging.getLogger(__name__)
 
 st.set_page_config(
     page_title="CardioHistory ML",
@@ -36,7 +41,6 @@ st.set_page_config(
 )
 
 
-@st.cache_resource
 def load_runtime_artifacts() -> tuple[DeployedArtifacts, dict[str, Any]]:
     artifacts = load_deployed_artifacts(verify_hashes=True)
     loaded_config = json.loads(
@@ -50,7 +54,14 @@ def load_runtime_artifacts() -> tuple[DeployedArtifacts, dict[str, Any]]:
 def load_model_pipeline(
     model_path: Path,
     expected_features: tuple[str, ...],
+    model_sha256: str,
 ) -> PyCaretAdapter:
+    if (
+        not isinstance(model_sha256, str)
+        or len(model_sha256) != 64
+        or any(character not in "0123456789abcdefABCDEF" for character in model_sha256)
+    ):
+        raise ValueError("Model SHA-256 must contain exactly 64 hexadecimal characters")
     pipeline = load_validated_pycaret_pipeline(
         model_path,
         expected_features=expected_features,
@@ -58,10 +69,89 @@ def load_model_pipeline(
     return PyCaretAdapter(pipeline, expected_features=expected_features)
 
 
+def _validated_last_inference(
+    value: Any,
+    *,
+    artifacts: DeployedArtifacts,
+    expected_features: tuple[str, ...],
+) -> dict[str, Any] | None:
+    """Return a normalized compatible snapshot or ``None`` when invalid."""
+
+    if not isinstance(value, Mapping):
+        return None
+
+    required_keys = {
+        "score",
+        "deployed_threshold",
+        "deployed_class",
+        "submitted_input",
+        "model_id",
+        "model_sha256",
+    }
+    if not required_keys.issubset(value):
+        return None
+
+    model_id = value["model_id"]
+    model_sha256 = value["model_sha256"]
+    if (
+        not isinstance(model_id, str)
+        or not model_id
+        or not isinstance(model_sha256, str)
+        or not model_sha256
+        or model_id != artifacts.model_id
+        or model_sha256 != artifacts.model_sha256
+    ):
+        return None
+
+    deployed_class = value["deployed_class"]
+    if (
+        isinstance(deployed_class, bool)
+        or not isinstance(deployed_class, int)
+        or deployed_class not in (0, 1)
+    ):
+        return None
+
+    try:
+        expected_class = classify_score(
+            value["score"],
+            value["deployed_threshold"],
+        )
+        score = float(value["score"])
+        deployed_threshold = float(value["deployed_threshold"])
+    except (TypeError, ValueError):
+        return None
+
+    if (
+        deployed_threshold != artifacts.decision_threshold
+        or deployed_class != expected_class
+    ):
+        return None
+
+    submitted_input = value["submitted_input"]
+    if (
+        not isinstance(submitted_input, Mapping)
+        or tuple(submitted_input.keys()) != expected_features
+    ):
+        return None
+
+    return {
+        "score": score,
+        "deployed_threshold": deployed_threshold,
+        "deployed_class": deployed_class,
+        "submitted_input": dict(submitted_input),
+        "model_id": model_id,
+        "model_sha256": model_sha256,
+    }
+
+
 try:
     artifacts, config = load_runtime_artifacts()
     expected_features = feature_names_from_config(config)
-    model = load_model_pipeline(artifacts.model_path, expected_features)
+    model = load_model_pipeline(
+        artifacts.model_path,
+        expected_features,
+        artifacts.model_sha256,
+    )
 except (
     ArtifactManifestError,
     OSError,
@@ -81,10 +171,37 @@ except Exception:
     )
     st.stop()
 
-threshold = artifacts.decision_threshold
+deployed_threshold = artifacts.decision_threshold
 pipeline_estimator = deployed_estimator(model.model)
 estimator_name = type(pipeline_estimator).__name__
 transformed_features = tuple(str(name) for name in pipeline_estimator.feature_names_in_)
+threshold_metadata = artifacts.manifest["decision_threshold"]
+estimator_params = pipeline_estimator.get_params(deep=False)
+
+stored_inference = st.session_state.get("last_inference")
+last_inference = None
+stored_inference_invalid = False
+if stored_inference is not None:
+    last_inference = _validated_last_inference(
+        stored_inference,
+        artifacts=artifacts,
+        expected_features=expected_features,
+    )
+    if last_inference is None:
+        stored_inference_invalid = True
+        st.session_state.pop("last_inference", None)
+        st.session_state.pop("explorer_threshold", None)
+    else:
+        st.session_state["last_inference"] = last_inference
+elif "explorer_threshold" in st.session_state:
+    st.session_state.pop("explorer_threshold")
+
+if stored_inference_invalid:
+    st.warning(
+        "El resultado anterior fue descartado porque no es válido o no es "
+        "compatible con el despliegue actual."
+    )
+
 with st.sidebar:
     st.header("Ficha técnica del despliegue")
     st.markdown(f"**Modelo:** {estimator_name}")
@@ -92,7 +209,7 @@ with st.sidebar:
     st.markdown(f"**Entrada:** {len(expected_features)} variables")
     st.markdown(f"**Transformación:** {len(transformed_features)} características")
     st.markdown("**Clase positiva:** 1")
-    st.markdown(f"**Umbral operativo:** {threshold:.2f}")
+    st.markdown(f"**Umbral operativo:** {deployed_threshold:.2f}")
     st.info("Integridad verificada mediante manifiesto y SHA-256.")
     st.caption("El umbral operativo no cuenta con validación independiente demostrada.")
 
@@ -119,7 +236,7 @@ with st.container(border=True):
         (f"{len(transformed_features)} características", "Entrada transformada"),
         (estimator_name, "Estimador final"),
         ("Clase positiva", "Score de clase 1"),
-        (f"Umbral {threshold:.2f}", "Clasificación académica"),
+        (f"Umbral {deployed_threshold:.2f}", "Clasificación académica"),
     )
     for column, (primary, secondary) in zip(flow_columns, flow_steps, strict=True):
         with column:
@@ -375,85 +492,196 @@ with st.form("patient_data_form", border=True):
     )
 
 if submitted:
-    values_by_feature = {
-        "Age": age,
-        "IncomeRatio": income,
-        "SystolicBP": systolic_bp,
-        "BMI": bmi,
-        "WaistCircumference": waist,
-        "Height": height,
-        "TotalCholesterol": total_cholesterol,
-        "Triglycerides": triglycerides,
-        "LDL": ldl,
-        "HDL": hdl,
-        "HbA1c": hba1c,
-        "Glucose": glucose,
-        "Creatinine": creatinine,
-        "UricAcid": uric_acid,
-        "ALT_Enzyme": alt,
-        "Albumin": albumin,
-        "Potassium": potassium,
-        "Sodium": sodium,
-        "GGT_Enzyme": ggt,
-        "AST_Enzyme": ast,
-        "Sex": sex,
-        "Race": race,
-        "Education": education,
-        "Smoking": int(smoking),
-        "PhysicalActivity": int(physical_activity),
-        "HealthInsurance": int(health_insurance),
-        "Alcohol": int(alcohol),
-    }
+    st.session_state.pop("last_inference", None)
+    st.session_state.pop("explorer_threshold", None)
+    last_inference = None
 
     try:
+        values_by_feature = {
+            "Age": age,
+            "IncomeRatio": income,
+            "SystolicBP": systolic_bp,
+            "BMI": bmi,
+            "WaistCircumference": waist,
+            "Height": height,
+            "TotalCholesterol": total_cholesterol,
+            "Triglycerides": triglycerides,
+            "LDL": ldl,
+            "HDL": hdl,
+            "HbA1c": hba1c,
+            "Glucose": glucose,
+            "Creatinine": creatinine,
+            "UricAcid": uric_acid,
+            "ALT_Enzyme": alt,
+            "Albumin": albumin,
+            "Potassium": potassium,
+            "Sodium": sodium,
+            "GGT_Enzyme": ggt,
+            "AST_Enzyme": ast,
+            "Sex": sex,
+            "Race": race,
+            "Education": education,
+            "Smoking": int(smoking),
+            "PhysicalActivity": int(physical_activity),
+            "HealthInsurance": int(health_insurance),
+            "Alcohol": int(alcohol),
+        }
         user_input = {
             feature: values_by_feature[feature] for feature in expected_features
         }
         input_frame = UserInputAdapter(expected_features).transform(user_input)
-        score = float(model.predict_proba(input_frame)[0])
-        classification = int(score >= threshold)
-
-        st.divider()
-        with st.container(border=True):
-            st.subheader(f"Salida del prototipo: clase {classification}")
-            score_column, threshold_column = st.columns(2)
-            with score_column:
-                st.metric("Score de la clase positiva", f"{score:.6f}")
-                st.caption(
-                    "El score es una salida del modelo y no una probabilidad "
-                    "clínica calibrada."
-                )
-            with threshold_column:
-                st.metric("Umbral operativo", f"{threshold:.2f}")
-                st.caption(
-                    "Umbral operativo definido en el manifiesto, sin validación "
-                    "independiente demostrada."
-                )
-
-            st.markdown(
-                f"**Regla de decisión:** Clase 1 si score ≥ {threshold:.2f}; "
-                "clase 0 en otro caso."
-            )
-            if classification == 1:
-                st.write(
-                    "La entrada fue asignada a la clase asociada por el modelo "
-                    "con el antecedente autorreportado."
-                )
-            else:
-                st.write(
-                    "La entrada no fue asignada a la clase asociada por el "
-                    "modelo con el antecedente autorreportado."
-                )
-            st.info("Esta salida no confirma ni descarta una condición médica.")
     except (KeyError, TypeError, ValueError) as exc:
         st.error(
             "No se pudo validar la entrada. Revise los campos indicados por el "
             f"contrato: {exc}"
         )
-    except Exception:
-        st.error(
-            "La inferencia no pudo completarse. La entrada no fue clasificada; "
-            "revise el entorno y el artefacto desplegado."
+    else:
+        try:
+            score = float(model.predict_proba(input_frame)[0])
+            deployed_class = classify_score(score, deployed_threshold)
+            submitted_input = input_frame.to_dict(orient="records")[0]
+            last_inference = {
+                "score": score,
+                "deployed_threshold": deployed_threshold,
+                "deployed_class": deployed_class,
+                "submitted_input": submitted_input.copy(),
+                "model_id": artifacts.model_id,
+                "model_sha256": artifacts.model_sha256,
+            }
+            st.session_state["last_inference"] = last_inference
+            st.session_state["explorer_threshold"] = deployed_threshold
+        except Exception:
+            st.session_state.pop("last_inference", None)
+            st.session_state.pop("explorer_threshold", None)
+            last_inference = None
+            LOGGER.exception("Model inference failed for a validated input")
+            st.error(
+                "La inferencia no pudo completarse. La entrada no fue clasificada; "
+                "revise el entorno y el artefacto desplegado."
+            )
+
+if last_inference is not None:
+    score = last_inference["score"]
+    official_threshold = last_inference["deployed_threshold"]
+    official_class = last_inference["deployed_class"]
+
+    st.divider()
+    with st.container(border=True):
+        st.subheader(
+            "Resultado oficial del artefacto desplegado: "
+            f"clase {official_class}"
+        )
+        st.caption(
+            "Este resultado corresponde a la última entrada enviada con el "
+            "botón de clasificación."
+        )
+        score_column, threshold_column, class_column = st.columns(3)
+        with score_column:
+            st.metric("Score oficial de la clase positiva", f"{score:.6f}")
+        with threshold_column:
+            st.metric("Umbral oficial", f"{official_threshold:.2f}")
+        with class_column:
+            st.metric("Clase oficial", str(official_class))
+
+        st.markdown(
+            "**Regla oficial:** clase 1 si score ≥ umbral oficial; "
+            "clase 0 en otro caso."
+        )
+        st.caption(
+            "El score es una salida del modelo y no una probabilidad clínica "
+            "calibrada."
+        )
+        st.info("Esta salida no confirma ni descarta una condición médica.")
+
+    with st.expander("Explorador didáctico de la regla de decisión"):
+        explorer_threshold_state = st.session_state.get(
+            "explorer_threshold",
+            deployed_threshold,
+        )
+        try:
+            classify_score(score, explorer_threshold_state)
+        except ValueError:
+            st.session_state["explorer_threshold"] = deployed_threshold
+        else:
+            st.session_state["explorer_threshold"] = float(explorer_threshold_state)
+
+        simulated_threshold = st.slider(
+            "Umbral simulado",
+            min_value=0.0,
+            max_value=1.0,
+            step=0.01,
+            key="explorer_threshold",
+        )
+        simulated_class = classify_score(score, simulated_threshold)
+        comparison_operator = "≥" if simulated_class == 1 else "<"
+
+        explorer_score, explorer_threshold, explorer_class = st.columns(3)
+        with explorer_score:
+            st.metric("Score almacenado", f"{score:.6f}")
+        with explorer_threshold:
+            st.metric("Umbral simulado", f"{simulated_threshold:.2f}")
+        with explorer_class:
+            st.metric("Clase simulada", str(simulated_class))
+
+        st.markdown(
+            f"**Comparación:** `{score:.6f} {comparison_operator} "
+            f"{simulated_threshold:.2f}`"
+        )
+        st.write(
+            "Esta simulación no modifica XGBoost, sus árboles, el score ni la "
+            "salida oficial. Solo aplica otra regla de clasificación sobre el "
+            "score ya calculado."
+        )
+
+        comparison_rows = [
+            {
+                "Escenario": "Umbral desplegado",
+                "Umbral": official_threshold,
+                "Clase resultante": classify_score(score, official_threshold),
+                "Estado": "Oficial",
+            },
+            {
+                "Escenario": "Umbral simulado",
+                "Umbral": simulated_threshold,
+                "Clase resultante": simulated_class,
+                "Estado": "Simulación",
+            },
+            {
+                "Escenario": "Referencia 0.50",
+                "Umbral": 0.50,
+                "Clase resultante": classify_score(score, 0.50),
+                "Estado": "Referencia didáctica",
+            },
+        ]
+        st.dataframe(comparison_rows, hide_index=True, width="stretch")
+
+    with st.expander("Auditoría de la decisión desplegada"):
+        objective = estimator_params.get("objective", "No disponible")
+        scale_pos_weight = estimator_params.get(
+            "scale_pos_weight", "No disponible"
+        )
+        threshold_source = threshold_metadata.get("source", "No disponible")
+        validation_status = threshold_metadata.get(
+            "validation_status", "No disponible"
+        )
+        artifact_hash = f"{artifacts.model_sha256[:16]}…"
+
+        audit_values = (
+            ("Identificador del modelo", artifacts.model_id),
+            ("Estimador", estimator_name),
+            ("Objetivo del estimador", objective),
+            ("scale_pos_weight", scale_pos_weight),
+            ("Umbral desplegado", f"{official_threshold:.2f}"),
+            ("Fuente del umbral", threshold_source),
+            ("Estado de validación del umbral", validation_status),
+            ("SHA-256 del artefacto", artifact_hash),
+        )
+        for label, value in audit_values:
+            st.markdown(f"**{label}:** {value}")
+
+        st.warning(
+            "No existe evidencia reproducible suficiente para afirmar que el "
+            "umbral desplegado sea óptimo ni que el score esté calibrado."
         )
 
 with st.expander("Cómo funciona el modelo"):
@@ -461,7 +689,7 @@ with st.expander("Cómo funciona el modelo"):
         "Pydantic valida las 27 variables y el adaptador conserva su orden "
         "canónico. El pipeline PyCaret las transforma en 31 características y "
         "un ensemble de 60 árboles XGBoost produce el score de la clase 1. La "
-        f"clasificación aplica después el umbral operativo {threshold:.2f}."
+        f"clasificación aplica después el umbral operativo {deployed_threshold:.2f}."
     )
 
 with st.expander("Alcance y limitaciones"):

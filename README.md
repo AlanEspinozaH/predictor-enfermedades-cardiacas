@@ -23,6 +23,9 @@ Artificial.
 - Obtiene el score de la clase positiva del pipeline PyCaret/XGBoost.
 - Aplica el umbral operativo `0.20` declarado en el manifiesto.
 - Presenta una clasificación académica con advertencias de alcance.
+- Conserva una inferencia exitosa durante los reruns y las interacciones con el
+  explorador. Al iniciar un nuevo envío invalida la salida anterior; si el nuevo
+  envío falla, no la restaura, para no asociarla con los valores nuevos.
 
 No ofrece diagnóstico, recomendación terapéutica, tamizaje clínico ni una
 medición formal de incertidumbre.
@@ -61,6 +64,10 @@ Streamlit
 `models/model_manifest.json` identifica el pipeline, su configuración, sus
 hashes SHA-256 y el umbral. El flujo no busca automáticamente el pickle más
 reciente.
+
+El explorador didáctico reutiliza el score de la última entrada enviada. Cambiar
+su slider solo vuelve a aplicar la regla de decisión; no ejecuta nuevamente el
+pipeline ni altera la salida oficial del manifiesto.
 
 ## Inicio rápido en Windows 11
 
@@ -103,7 +110,7 @@ python -m pytest -q -m "not integration"
 python -m pytest -q -m integration
 ```
 
-La línea base comprobada con Python 3.10.20 es de 96 pruebas no integradas y 4
+La línea base comprobada con Python 3.10.20 es de 123 pruebas no integradas y 18
 pruebas de integración aprobadas. Estas comprobaciones demuestran funcionamiento
 técnico, no desempeño predictivo ni validez clínica.
 

@@ -69,6 +69,20 @@ El resultado binario se calcula comparando ese score con el umbral del
 manifiesto. Cambiar el umbral modificaría la decisión, pero no reentrenaría el
 pipeline.
 
+En cada rerun, `src/app.py` vuelve a leer el manifiesto, verifica los hashes de
+los artefactos y valida el contrato de variables. El pipeline pesado permanece
+en la caché de recursos; su clave incluye la ruta, las variables esperadas y el
+SHA-256 verificado del modelo. Así, un hash distinto requiere otra carga sin
+recargar el pipeline cuando solo cambia el umbral.
+
+Tras una inferencia válida, `src/app.py` conserva en
+`st.session_state["last_inference"]` el score, la entrada enviada, la decisión
+oficial y la identidad del artefacto. Antes de renderizarla comprueba su
+estructura, contrato e identidad; una instantánea corrupta o incompatible se
+descarta. El slider didáctico usa una clave separada y se restablece al umbral
+oficial si contiene un valor inválido. Cada nuevo submit elimina primero la
+instantánea anterior y no la restaura si la validación o inferencia nueva falla.
+
 ## 4. Responsabilidad de los módulos
 
 | Componente | Responsabilidad efectiva |
@@ -76,6 +90,7 @@ pipeline.
 | `src/app.py` | Construye la interfaz Streamlit, carga el despliegue mediante el registro, recoge las 27 entradas y presenta score y clasificación con advertencias de alcance. |
 | `src/interfaces.py` | Define el protocolo `HeartDiseaseModel` y el esquema Pydantic `InputData`, incluidos tipos, rangos y dominios categóricos. |
 | `src/adapters.py` | `UserInputAdapter` valida y ordena la entrada; `PyCaretAdapter` valida el contrato del pipeline y extrae el score de la clase positiva. |
+| `src/decision.py` | Valida score y umbral en `[0, 1]` y aplica la regla binaria pura usada por la salida oficial y las simulaciones didácticas. |
 | `src/feature_contract.py` | Es la fuente canónica del orden de 27 variables, grupos numérico/categórico, objetivo y edad mínima. |
 | `src/artifact_registry.py` | Lee el manifiesto, resuelve rutas internas seguras, verifica SHA-256, carga PyCaret y comprueba metadatos externos y ausencia del objetivo en el estimador. |
 | `src/candidate_registry.py` | Valida el manifiesto de candidato v1, relaciones cruzadas, rutas relativas, hashes y contratos; también coordina escrituras atómicas y selección reproducible. |

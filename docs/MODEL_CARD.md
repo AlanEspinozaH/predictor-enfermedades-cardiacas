@@ -149,8 +149,8 @@ En el entorno Windows/Conda con Python 3.10.20 se ha comprobado:
 - entrada externa de 27 variables en orden canónico;
 - 31 características esperadas por el estimador sin el objetivo;
 - inferencia funcional y score válido para una fila sintética;
-- 44 pruebas no integradas aprobadas;
-- 3 pruebas de integración aprobadas;
+- 123 pruebas no integradas aprobadas;
+- 18 pruebas de integración aprobadas;
 - smoke test aprobado.
 
 Esta evidencia demuestra integridad y funcionamiento técnico actual. No es una
