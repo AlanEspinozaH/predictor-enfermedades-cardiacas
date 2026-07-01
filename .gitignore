@@ -21,6 +21,7 @@ venv/
 .DS_Store
 Thumbs.db
 Summary Plot.png
+external_validation.json
 external_predictions.csv
 results/
 

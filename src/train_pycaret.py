@@ -5,7 +5,9 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+import sys
 from datetime import datetime, timezone
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 import numpy as np
@@ -36,9 +38,14 @@ from sklearn.metrics import (
 try:
     from src.artifact_registry import (
         PROJECT_ROOT,
-        ArtifactManifestError,
-        repository_relative_path,
         sha256_file,
+    )
+    from src.candidate_registry import (
+        atomic_write_json,
+        build_selection_report,
+        feature_contract_evidence,
+        publish_candidate_directory,
+        select_candidate_evidence,
     )
     from src.data_pipeline import (
         load_training_provenance,
@@ -58,9 +65,14 @@ try:
 except ModuleNotFoundError:
     from artifact_registry import (
         PROJECT_ROOT,
-        ArtifactManifestError,
-        repository_relative_path,
         sha256_file,
+    )
+    from candidate_registry import (
+        atomic_write_json,
+        build_selection_report,
+        feature_contract_evidence,
+        publish_candidate_directory,
+        select_candidate_evidence,
     )
     from data_pipeline import (
         load_training_provenance,
@@ -187,11 +199,16 @@ def _select_threshold(
     return float(selected["threshold"]), selected
 
 
-def _data_reference(path: Path) -> str:
-    try:
-        return repository_relative_path(path)
-    except ArtifactManifestError:
-        return str(path)
+def _software_versions() -> dict[str, str]:
+    """Return reproducibility versions without serializing runtime objects."""
+
+    versions = {"python": sys.version.split()[0]}
+    for distribution in ("pycaret", "pandas", "numpy", "scikit-learn"):
+        try:
+            versions[distribution] = version(distribution)
+        except PackageNotFoundError:
+            versions[distribution] = "not_installed"
+    return versions
 
 
 def train_baseline(
@@ -313,30 +330,45 @@ def train_baseline(
     if available_columns:
         print(results[available_columns])
 
-    selected_model = None
-    best_recall = -1.0
-    for model in top_models:
+    candidate_metrics: list[dict[str, object]] = []
+    for index, model in enumerate(top_models):
         validation_predictions = predict_model(model, verbose=False)
         label_column = _prediction_label_column(validation_predictions)
         truth = validation_predictions[TARGET_COLUMN]
         predicted = validation_predictions[label_column]
-        precision = precision_score(truth, predicted, zero_division=0)
-        recall = recall_score(truth, predicted, zero_division=0)
+        precision = float(precision_score(truth, predicted, zero_division=0))
+        recall = float(recall_score(truth, predicted, zero_division=0))
+        candidate_metrics.append(
+            {
+                "candidate_id": f"development-candidate-{index + 1}",
+                "algorithm": type(model).__name__,
+                "development_metrics": {
+                    "precision": precision,
+                    "recall": recall,
+                },
+                "status": "considered",
+            }
+        )
         print(
             f"Model {type(model).__name__}: recall={recall:.4f}, "
             f"precision={precision:.4f}"
         )
-        if precision >= 0.40 and recall > best_recall:
-            selected_model = model
-            best_recall = recall
-
-    if selected_model is None:
+    (
+        selected_candidate_index,
+        candidate_models_considered,
+        model_selection_rule,
+    ) = select_candidate_evidence(candidate_metrics, minimum_precision=0.40)
+    selected_model = top_models[selected_candidate_index]
+    if not any(
+        float(candidate["development_metrics"]["precision"]) >= 0.40
+        for candidate in candidate_models_considered
+    ):
         print(
             "No model met precision >= 0.40 on the internal validation set; "
-            "using the highest-recall comparison model."
+            "using the measured highest-recall candidate across all candidates."
         )
-        selected_model = top_models[0]
 
+    tuning_status = "accepted"
     try:
         tuned_model = tune_model(
             selected_model,
@@ -357,9 +389,11 @@ def train_baseline(
                 "reverting to the selected untuned model."
             )
             tuned_model = selected_model
+            tuning_status = "rejected_precision_below_0.40"
     except Exception as exc:
         print(f"Tuning failed ({exc}); using the selected model.")
         tuned_model = selected_model
+        tuning_status = f"failed:{type(exc).__name__}"
 
     internal_predictions = predict_model(
         tuned_model,
@@ -369,16 +403,14 @@ def train_baseline(
     internal_label = _prediction_label_column(internal_predictions)
     internal_score = _positive_class_score(internal_predictions, internal_label)
     if internal_score is None:
-        best_threshold = 0.50
-        internal_threshold_metrics = {
-            "threshold": best_threshold,
-            "selection_rule": "default because positive-class score was unavailable",
-        }
-    else:
-        best_threshold, internal_threshold_metrics = _select_threshold(
-            internal_predictions[TARGET_COLUMN],
-            internal_score,
+        raise RuntimeError(
+            "Threshold selection requires positive-class scores; no implicit "
+            "default is permitted."
         )
+    best_threshold, internal_threshold_metrics = _select_threshold(
+        internal_predictions[TARGET_COLUMN],
+        internal_score,
+    )
     print(
         "Threshold selected only from the internal development validation set: "
         f"{best_threshold:.2f}"
@@ -422,107 +454,191 @@ def train_baseline(
             "--evaluate-protected-test."
         )
 
+    created_at = datetime.now(timezone.utc).isoformat()
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    candidate_dir = output_root / "candidates" / run_id
-    candidate_dir.mkdir(parents=True, exist_ok=False)
+    candidates_root = output_root / "candidates"
+    candidate_dir = candidates_root / run_id
+    staging_dir = candidates_root / f".{run_id}.tmp"
+    candidates_root.mkdir(parents=True, exist_ok=True)
+    if candidate_dir.exists() or staging_dir.exists():
+        raise FileExistsError(f"Candidate run already exists: {run_id}")
+    staging_dir.mkdir()
 
     try:
-        interpret_model(final_model, plot="summary", save=True)
-        shap_source = Path("Summary Plot.png")
-        if shap_source.is_file():
-            shutil.move(
-                str(shap_source),
-                candidate_dir / "shap_summary_plot.png",
-            )
-    except Exception as exc:
-        print(f"SHAP generation failed: {exc}")
+        try:
+            interpret_model(final_model, plot="summary", save=True)
+            shap_source = Path("Summary Plot.png")
+            if shap_source.is_file():
+                shutil.move(
+                    str(shap_source),
+                    staging_dir / "shap_summary_plot.png",
+                )
+        except Exception as exc:
+            print(f"SHAP generation failed: {exc}")
 
-    reference_schema: dict[str, dict[str, float | None]] = {}
-    for column in MODEL_NUMERIC_FEATURES:
-        description = pd.to_numeric(development[column], errors="coerce").describe()
-        reference_schema[column] = {
-            "mean": float(description["mean"])
-            if pd.notna(description["mean"])
-            else None,
-            "std": float(description["std"]) if pd.notna(description["std"]) else None,
-            "min": float(description["min"]) if pd.notna(description["min"]) else None,
-            "max": float(description["max"]) if pd.notna(description["max"]) else None,
-            "missing_count": int(development[column].isna().sum()),
-        }
-    reference_schema_path = candidate_dir / "training_reference_schema.json"
-    reference_schema_path.write_text(
-        json.dumps(reference_schema, indent=4),
-        encoding="utf-8",
-    )
-
-    pipeline_stem = candidate_dir / "pipeline"
-    save_model(final_model, str(pipeline_stem))
-    pipeline_path = pipeline_stem.with_suffix(".pkl")
-
-    feature_config_path = PROJECT_ROOT / "models" / "model_config.json"
-    if not feature_config_path.is_file():
-        raise FileNotFoundError(
-            f"Canonical feature configuration not found: {feature_config_path}"
+        reference_schema: dict[str, dict[str, float | None]] = {}
+        for column in MODEL_NUMERIC_FEATURES:
+            description = pd.to_numeric(development[column], errors="coerce").describe()
+            reference_schema[column] = {
+                "mean": float(description["mean"])
+                if pd.notna(description["mean"])
+                else None,
+                "std": float(description["std"])
+                if pd.notna(description["std"])
+                else None,
+                "min": float(description["min"])
+                if pd.notna(description["min"])
+                else None,
+                "max": float(description["max"])
+                if pd.notna(description["max"])
+                else None,
+                "missing_count": int(development[column].isna().sum()),
+            }
+        atomic_write_json(
+            staging_dir / "training_reference_schema.json",
+            reference_schema,
         )
 
-    candidate_manifest = {
-        "manifest_version": "1.1.0",
-        "model_id": f"candidate-{run_id}",
-        "status": "candidate_not_deployed",
-        "created_at_utc": datetime.now(timezone.utc).isoformat(),
-        "model": {
-            "path": repository_relative_path(pipeline_path),
-            "format": "pycaret_pickle",
-            "sha256": sha256_file(pipeline_path),
-        },
-        "feature_config": {
-            "path": repository_relative_path(feature_config_path),
-            "schema_version": FEATURE_SCHEMA_VERSION,
-            "sha256": sha256_file(feature_config_path),
-        },
-        "decision_threshold": {
-            "value": float(best_threshold),
-            "source": "internal_development_validation",
-            "selection_metrics": internal_threshold_metrics,
-            "validation_status": (
-                "evaluated_once_on_protected_internal_test"
-                if evaluate_protected_test
-                else "not_evaluated_on_protected_test"
-            ),
-        },
-        "training": {
-            "strategy": strategy,
-            "data_path": _data_reference(selected_data_path),
-            "data_sha256": sha256_file(selected_data_path),
-            "provenance_path": _data_reference(provenance_path),
-            "provenance_sha256": sha256_file(provenance_path),
-            "provenance": dict(provenance),
-            "development_rows": int(len(development)),
-            "session_id": 42,
-            "imputation": {
-                "numeric": "median fitted within PyCaret development pipeline",
-                "categorical": "mode fitted within PyCaret development pipeline",
-                "pre_split_imputation": False,
-            },
-        },
-        "data_split": dict(split.metadata),
-        "protected_test_metrics": independent_metrics,
-        "protected_test_evaluated": evaluate_protected_test,
-        "deployment": {
-            "deployed": False,
-            "instruction": (
-                "Review target provenance, protected-test metrics (when explicitly "
-                "enabled), calibration, subgroup performance, and candidate artifacts "
-                "before explicitly updating models/model_manifest.json."
-            ),
-        },
-    }
-    candidate_manifest_path = candidate_dir / "candidate_manifest.json"
-    candidate_manifest_path.write_text(
-        json.dumps(candidate_manifest, indent=4),
-        encoding="utf-8",
-    )
+        pipeline_stem = staging_dir / "pipeline"
+        save_model(final_model, str(pipeline_stem))
+        pipeline_path = pipeline_stem.with_suffix(".pkl")
+        if not pipeline_path.is_file():
+            raise FileNotFoundError(
+                f"PyCaret did not save the pipeline: {pipeline_path}"
+            )
 
+        canonical_feature_config = PROJECT_ROOT / "models" / "model_config.json"
+        if not canonical_feature_config.is_file():
+            raise FileNotFoundError(
+                f"Canonical feature configuration not found: {canonical_feature_config}"
+            )
+        feature_config = json.loads(
+            canonical_feature_config.read_text(encoding="utf-8")
+        )
+        feature_config_path = atomic_write_json(
+            staging_dir / "model_config.json",
+            feature_config,
+        )
+
+        dataset_hash = sha256_file(selected_data_path)
+        candidate_data_provenance = {
+            "schema_version": 1,
+            "dataset": {
+                "identifier": selected_data_path.name,
+                "sha256": dataset_hash,
+                "row_count": int(len(source_data)),
+                "columns": [str(column) for column in source_data.columns],
+            },
+            "source": str(
+                provenance.get("source", "verified_training_provenance_sidecar")
+            ),
+            "cycles": provenance.get("cycles", provenance.get("source_cycles", [])),
+            "independent_from_training": False,
+            "target": {
+                "column": TARGET_COLUMN,
+                "source": "MCQ160E",
+                "mapping": {"1": 1, "2": 0},
+                "excluded": ["other", "missing"],
+                "definition": (
+                    "MCQ160E: 1 maps to 1, 2 maps to 0, and other or "
+                    "missing responses are excluded."
+                ),
+            },
+            "training_provenance": dict(provenance),
+        }
+        candidate_provenance_path = atomic_write_json(
+            staging_dir / "data.provenance.json",
+            candidate_data_provenance,
+        )
+
+        selected_evidence = candidate_models_considered[selected_candidate_index]
+        selection_report = build_selection_report(
+            run_id=run_id,
+            created_at=created_at,
+            strategy=strategy,
+            random_seed=42,
+            candidate_models_considered=candidate_models_considered,
+            selection_split={
+                "name": "internal_development_validation",
+                "protected_test_excluded_from_selection": True,
+                "data_split": dict(split.metadata),
+            },
+            primary_metric="recall",
+            selection_rule=model_selection_rule,
+            threshold_rule=str(internal_threshold_metrics["selection_rule"]),
+            selected_model={
+                "candidate_id": selected_evidence["candidate_id"],
+                "algorithm": type(tuned_model).__name__,
+                "tuning_status": tuning_status,
+            },
+            selected_threshold=best_threshold,
+            development_metrics=internal_threshold_metrics,
+            protected_test_consulted=evaluate_protected_test,
+            feature_contract=feature_contract_evidence(MODEL_INPUT_FEATURES),
+            software_versions=_software_versions(),
+            data_provenance_reference={
+                "path": candidate_provenance_path.name,
+                "sha256": sha256_file(candidate_provenance_path),
+            },
+        )
+        selection_report_path = atomic_write_json(
+            staging_dir / "selection_report.json",
+            selection_report,
+        )
+
+        candidate_manifest = {
+            "schema_version": 1,
+            "run_id": run_id,
+            "model_id": f"candidate-{run_id}",
+            "status": "candidate_not_deployed",
+            "strategy": strategy,
+            "created_at": created_at,
+            "model": {
+                "path": pipeline_path.name,
+                "format": "pycaret_pickle",
+                "sha256": sha256_file(pipeline_path),
+            },
+            "feature_config": {
+                "path": feature_config_path.name,
+                "schema_version": FEATURE_SCHEMA_VERSION,
+                "sha256": sha256_file(feature_config_path),
+            },
+            "decision_threshold": {
+                "value": float(best_threshold),
+                "source": "development_selection",
+            },
+            "data_provenance": {
+                "path": candidate_provenance_path.name,
+                "sha256": sha256_file(candidate_provenance_path),
+            },
+            "selection_evidence": {
+                "path": selection_report_path.name,
+                "sha256": sha256_file(selection_report_path),
+            },
+            "protected_test": {
+                "consulted": evaluate_protected_test,
+                "metrics": independent_metrics,
+            },
+            "deployment": {
+                "deployed": False,
+                "instruction": (
+                    "Review candidate evidence before explicitly updating the "
+                    "deployed manifest."
+                ),
+            },
+        }
+        atomic_write_json(
+            staging_dir / "candidate_manifest.json",
+            candidate_manifest,
+        )
+        publish_candidate_directory(staging_dir, candidate_dir)
+    except Exception:
+        shutil.rmtree(staging_dir, ignore_errors=True)
+        Path("Summary Plot.png").unlink(missing_ok=True)
+        raise
+
+    pipeline_path = candidate_dir / "pipeline.pkl"
+    candidate_manifest_path = candidate_dir / "candidate_manifest.json"
     print(f"Candidate pipeline saved to {pipeline_path}")
     print(f"Candidate manifest saved to {candidate_manifest_path}")
     print("The deployed model and deployed manifest were not modified.")
@@ -531,16 +647,39 @@ def train_baseline(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Train a leakage-safe, non-deployed PyCaret candidate."
+        description=(
+            "Train a leakage-safe, non-deployed PyCaret candidate and publish a "
+            "versioned manifest plus selection evidence. This is not clinical "
+            "validation."
+        ),
+        epilog=(
+            "Candidate outputs include hashed model, feature configuration, data "
+            "provenance, and selection_report.json components. The deployed "
+            "manifest is never changed automatically."
+        ),
     )
-    parser.add_argument("--data", default=str(DEFAULT_DATA_PATH))
-    parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR))
+    parser.add_argument(
+        "--data",
+        default=str(DEFAULT_DATA_PATH),
+        help="Training cohort with a verified provenance sidecar",
+    )
+    parser.add_argument(
+        "--output-dir",
+        default=str(DEFAULT_OUTPUT_DIR),
+        help="Root where an atomic candidates/<run_id> directory is published",
+    )
     parser.add_argument(
         "--strategy",
         choices=("SMOTE", "SCALE_POS_WEIGHT"),
         default="SMOTE",
+        help="Development-only candidate training strategy",
     )
-    parser.add_argument("--test-size", type=float, default=0.20)
+    parser.add_argument(
+        "--test-size",
+        type=float,
+        default=0.20,
+        help="Protected split fraction; never used for model or threshold selection",
+    )
     parser.add_argument(
         "--evaluate-protected-test",
         action="store_true",

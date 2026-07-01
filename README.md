@@ -1,183 +1,211 @@
-# Prototipo académico NHANES para clasificación de antecedente de infarto
+# CardioHistory ML
 
-Proyecto de aprendizaje automático desarrollado con datos de **NHANES** y dos
-componentes diferenciados:
+**Clasificación explicable de antecedente autorreportado de infarto con datos NHANES**
 
-1. Un pipeline serializado de PyCaret para demostrar inferencia en Streamlit.
-2. Una implementación educativa, simplificada, de boosting con árboles desde cero.
+CardioHistory ML es un prototipo académico de aprendizaje automático. Su
+objetivo corresponde a `MCQ160E`: si una persona declaró que un profesional de
+salud le había informado alguna vez que sufrió un infarto.
 
-> **Alcance correcto:** el objetivo histórico es `MCQ160E`, es decir, si una
-> persona declaró que alguna vez un profesional le informó que había sufrido un
-> ataque cardíaco. El proyecto **no predice un infarto futuro**, no es un sistema
-> de diagnóstico y no es un dispositivo médico.
+> La aplicación no diagnostica una condición actual, no predice un infarto
+> futuro, no estima riesgo cardiovascular prospectivo y no es un dispositivo
+> médico.
 
-## Estado del repositorio
+Proyecto académico desarrollado por el equipo del curso de Inteligencia
+Artificial.
 
-El código fue saneado para eliminar información personal, rutas locales, logs,
-cachés, documentación histórica no vigente y notebooks que contradecían el
-pipeline corregido.
+## Qué hace
 
-El artefacto `models/best_pipeline.pkl` se conserva únicamente como **modelo
-académico heredado**. Sus métricas anteriores no se consideran una validación
-independiente. El flujo de entrenamiento corregido genera candidatos nuevos sin
-reemplazar automáticamente el modelo desplegado.
+- Recibe 27 variables demográficas, antropométricas, bioquímicas y de estilo de
+  vida mediante Streamlit.
+- Valida tipos, dominios y rangos con Pydantic.
+- Ordena la entrada según un contrato canónico.
+- Verifica la integridad del modelo y su configuración antes de deserializar.
+- Obtiene el score de la clase positiva del pipeline PyCaret/XGBoost.
+- Aplica el umbral operativo `0.20` declarado en el manifiesto.
+- Presenta una clasificación académica con advertencias de alcance.
+- Conserva una inferencia exitosa durante los reruns y las interacciones con el
+  explorador. Al iniciar un nuevo envío invalida la salida anterior; si el nuevo
+  envío falla, no la restaura, para no asociarla con los valores nuevos.
 
-## Correcciones principales
+No ofrece diagnóstico, recomendación terapéutica, tamizaje clínico ni una
+medición formal de incertidumbre.
 
-- Contrato único de 27 variables entre interfaz, validación y configuración.
-- `HDL` es obligatorio y `DiastolicBP` ya no forma parte de la entrada.
-- Codificación NHANES de sexo: `1 = hombre`, `2 = mujer`.
-- Edad mínima de 20 años para la cohorte asociada a `MCQ160E`.
-- Rechazo explícito de variables faltantes o inesperadas; no se rellenan con cero.
-- Un único artefacto desplegado resuelto por `models/model_manifest.json`.
-- Verificación SHA-256 del modelo y de su configuración.
-- Compatibilidad controlada con metadatos PyCaret: `HeartDisease` puede retirarse únicamente de `pipeline.feature_names_in_`, nunca del contrato de entrada ni de las características del estimador final.
-- Construcción de objetivo: `1 -> positivo`, `2 -> negativo`; `7`, `9` y ausentes
-  se excluyen.
-- División del test antes de imputar, ajustar o seleccionar umbral.
-- Candidatos guardados en `models/candidates/<timestamp>/` sin despliegue automático.
-- Auditoría por grupos marcada como exploratoria y no independiente.
-- Interfaz corregida para no presentar la salida como riesgo clínico futuro.
-- Docker actualizado a una imagen Python 3.10 basada en Debian Bookworm.
+## Estado actual del modelo
 
-## Estructura
+| Elemento | Estado verificado |
+|---|---|
+| Identificador interno | `nhanes-heart-disease-pycaret-legacy-v1` |
+| Estado del manifiesto | `legacy_prototype_deployed` |
+| Formato | Pipeline PyCaret serializado |
+| Estimador final | `xgboost.sklearn.XGBClassifier` |
+| Entrada externa | 27 variables canónicas |
+| Entrada transformada | 31 características |
+| Clase positiva | `1` |
+| Umbral operativo | `0.20`, definido en el manifiesto y sin validación independiente |
+
+El artefacto desplegado corresponde a un prototipo académico desplegado. La inferencia y la integridad
+técnica se han verificado, pero no existen métricas históricas reproducibles
+suficientes para presentarlo como superior a otros modelos ni como validado para
+uso clínico.
+
+## Arquitectura resumida
 
 ```text
-.
-├── data/
-│   ├── 02_intermediate/        # Artefacto heredado y cohortes generadas
-│   └── 02_processed/           # Construcción reproducible de datos NHANES
-├── docs/                       # Documentación canónica
-├── models/
-│   ├── best_pipeline.pkl       # Artefacto heredado actualmente desplegado
-│   ├── model_config.json       # Contrato serializado de características
-│   └── model_manifest.json     # Registro, hashes y umbral del despliegue
-├── notebooks/README.md         # Motivo de retiro de notebooks antiguos
-├── src/
-│   ├── app.py                  # Interfaz Streamlit
-│   ├── feature_contract.py     # Fuente canónica del esquema
-│   ├── artifact_registry.py    # Resolución e integridad de artefactos
-│   ├── data_pipeline.py        # Cohorte, objetivo y particiones
-│   ├── train_pycaret.py        # Entrenamiento de candidatos
-│   ├── validate_external.py    # Evaluación externa explícita
-│   ├── audit_fairness.py       # Diagnóstico exploratorio por sexo
-│   └── tree/                   # Árbol y pérdida del modelo educativo
-└── tests/                      # Pruebas unitarias y de contrato
+Streamlit
+  → InputData (Pydantic)
+  → UserInputAdapter (27 variables en orden canónico)
+  → pipeline PyCaret (preprocesamiento a 31 características)
+  → XGBClassifier
+  → score de la clase 1
+  → umbral 0.20
+  → clasificación académica
 ```
 
-## Entorno recomendado
+`models/model_manifest.json` identifica el pipeline, su configuración, sus
+hashes SHA-256 y el umbral. El flujo no busca automáticamente el pickle más
+reciente.
 
-- Python 3.10
-- Windows 11, Linux o contenedor Docker
-- Entorno aislado con Conda o `venv`
+El explorador didáctico reutiliza el score de la última entrada enviada. Cambiar
+su slider solo vuelve a aplicar la regla de decisión; no ejecuta nuevamente el
+pipeline ni altera la salida oficial del manifiesto.
 
-### Conda
+## Inicio rápido en Windows 11
+
+Requiere Conda y Python 3.10. Desde la raíz del repositorio:
 
 ```powershell
-conda create -n heart-ml python=3.10 pip -y
+conda create -n heart-ml python=3.10 -y
 conda activate heart-ml
-python -m pip install --upgrade pip
+python --version
 python -m pip install -r requirements-dev.txt
-```
-
-### `venv` en Windows
-
-```powershell
-py -3.10 -m venv .venv
-.venv\Scripts\activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements-dev.txt
-```
-
-## Verificación
-
-Ejecutar desde la raíz:
-
-```powershell
 python -m pip check
-python -m pytest -q
-python -m pytest -q -m integration
 ```
 
-La marca `integration` carga el archivo real `models/best_pipeline.pkl`, ejecuta `predict()` y `predict_proba()` con exactamente las 27 variables canónicas y abre la aplicación mediante `streamlit.testing.v1.AppTest`.
+La versión debe comenzar con `Python 3.10`. `requirements-dev.txt` incluye las
+dependencias de ejecución declaradas en `requirements.txt`.
 
-Con el entorno del usuario:
-
-```powershell
-C:\Users\USUARIO\anaconda3\envs\heart-ml\python.exe -m pip check
-C:\Users\USUARIO\anaconda3\envs\heart-ml\python.exe -m pytest -q
-```
-
-## Ejecutar la aplicación
+### Ejecutar la aplicación
 
 ```powershell
 python -m streamlit run src/app.py
 ```
 
-La aplicación verifica el manifiesto y los hashes antes de cargar el pickle. No
-cargue archivos `.pkl` provenientes de fuentes no confiables.
+Streamlit sirve la aplicación localmente, normalmente en
+`http://localhost:8501`.
 
-## Reconstruir datos y entrenar un candidato
+### Ejecutar el smoke test
 
 ```powershell
-python data/02_processed/carga.py
-python src/train_pycaret.py --strategy SMOTE
-python src/train_pycaret.py --strategy SCALE_POS_WEIGHT
+python scripts/smoke_test.py
 ```
 
-El primer comando crea una cohorte sin imputación estadística y un archivo de
-procedencia. Los dos comandos siguientes generan candidatos usando únicamente
-información de desarrollo: por defecto **no consultan el test protegido**. Tras
-elegir una sola estrategia con criterios fijados previamente, se permite una
-única evaluación explícita:
+El smoke test verifica hashes, carga validada, contrato de 27 variables,
+transformación esperada a 31 características, score de la clase positiva y
+aplicación del umbral del manifiesto.
+
+### Ejecutar las pruebas
 
 ```powershell
-python src/train_pycaret.py --strategy ESTRATEGIA_ELEGIDA --evaluate-protected-test
+python -m pytest -q -m "not integration"
+python -m pytest -q -m integration
 ```
 
-Cada ejecución guarda un candidato fechado y nunca modifica automáticamente el
-despliegue.
+La línea base comprobada con Python 3.10.20 es de 123 pruebas no integradas y 18
+pruebas de integración aprobadas. Estas comprobaciones demuestran funcionamiento
+técnico, no desempeño predictivo ni validez clínica.
 
-## Validación externa
+La guía completa está en [Instalación](docs/INSTALLATION.md).
+
+### Validación técnica trazable
+
+El modo desplegado resuelve y verifica `models/model_manifest.json`:
 
 ```powershell
-python -m src.validate_external ^
-  --data-path ruta\cohorte_externa.parquet ^
-  --output-path results\predicciones.csv
+python -m src.validate_external `
+  --data-path ruta\cohorte.csv `
+  --output-path results\validation.json `
+  --predictions-path results\predictions.csv
 ```
 
-Una cohorte externa debe incluir exactamente las 27 características. Para
-calcular métricas debe incluir además `HeartDisease` con valores binarios `0/1`.
-
-## Docker
+Un candidato requiere su manifiesto v1 completo; no se aceptan pickles por una
+ruta arbitraria:
 
 ```powershell
-docker build -t nhanes-heart-prototype .
-docker run --rm -p 8501:8501 nhanes-heart-prototype
+python -m src.validate_external `
+  --candidate-manifest models\candidates\<run_id>\candidate_manifest.json `
+  --data-path ruta\cohorte.csv `
+  --output-path results\validation.json `
+  --predictions-path results\predictions.csv
+```
+
+No existe fallback silencioso a `0.50`: el umbral procede del manifiesto o de
+un `--threshold` explícito que queda registrado. Sin un sidecar de procedencia
+verificable, el resultado se clasifica como `external_unverified`. Incluso con
+procedencia declarada como independiente, el programa registra que no realizó
+una auditoría independiente. Estas salidas son evidencia técnica, no validación
+clínica.
+
+## Artefactos y datos
+
+Para inferencia se requieren el manifiesto y los artefactos de modelo y
+configuración declarados en él:
+
+- `models/model_manifest.json`;
+- `models/best_pipeline.pkl`;
+- `models/model_config.json`.
+
+Solo deben deserializarse pickles de origen confiable. La verificación SHA-256
+detecta cambios, pero no neutraliza código malicioso dentro de un pickle externo.
+
+Los archivos Parquet se utilizan en análisis, validación o entrenamiento. La
+aplicación Streamlit no necesita el Parquet para abrirse ni realizar inferencia.
+El Parquet histórico asociado al modelo se conserva por trazabilidad y no debe
+tratarse como una cohorte corregida para reentrenamiento.
+
+## Estructura
+
+```text
+.
+├── data/                       # Datos históricos y flujos de preparación
+├── docs/
+│   ├── ARCHITECTURE.md         # Arquitectura efectiva
+│   ├── INSTALLATION.md         # Instalación y operación
+│   ├── MODEL_CARD.md          # Evidencia y límites del artefacto
+│   └── MODEL_EXPLANATION.md   # Fundamento de XGBoost
+├── models/                     # Manifiesto, configuración y pipeline
+├── scripts/
+│   └── smoke_test.py          # Verificación mínima de extremo a extremo
+├── src/                        # Aplicación, adaptadores y entrenamiento
+├── tests/                      # Pruebas unitarias y de integración
+├── requirements.txt
+└── requirements-dev.txt
 ```
 
 ## Documentación
 
-- [Índice documental](docs/README.md)
-- [Diseño técnico](docs/Diseno_Tecnico.md)
-- [Contrato de variables](docs/auditoria_variables.md)
-- [Ficha del modelo](docs/MODEL_CARD.md)
-- [Ficha de datos](docs/DATA_CARD.md)
-- [Métricas y evaluación](docs/definicion_metricas.md)
-- [Plan de trabajo restante](docs/PLAN_TRABAJO.md)
-- [Correcciones de auditoría](docs/CORRECCIONES_AUDITORIA.md)
-- [Evidencia de verificación](docs/VERIFICACION.md)
+- [Instalación y ejecución](docs/INSTALLATION.md)
+- [Arquitectura técnica](docs/ARCHITECTURE.md)
+- [Ficha del modelo desplegado](docs/MODEL_CARD.md)
+- [Explicación técnica y matemática](docs/MODEL_EXPLANATION.md)
 
-## Limitaciones esenciales
+## Limitaciones científicas
 
-- El artefacto desplegado es heredado y no debe usarse para afirmaciones clínicas.
-- El umbral `0.20` se conserva por trazabilidad, no por validación independiente.
-- El Parquet heredado no debe utilizarse para reentrenar candidatos nuevos.
-- La equidad no puede concluirse hasta evaluar un candidato en un test protegido.
-- La implementación `XGBoostScratch` es pedagógica y no sustituye XGBoost oficial.
+- El objetivo es un antecedente autorreportado y puede contener error de
+  recuerdo o clasificación.
+- NHANES es observacional y transversal; este prototipo no modela tiempo hasta
+  un evento.
+- El entrenamiento histórico no es completamente reproducible con la evidencia
+  actualmente conservada.
+- El umbral `0.20` no tiene validación independiente demostrada.
+- No se ha demostrado calibración, transporte a otras poblaciones ni equidad por
+  subgrupos.
+- El desbalance de clases y `scale_pos_weight=38` exigen evaluar métricas por
+  clase y calibración antes de interpretar scores.
+- Docker dispone de un procedimiento documentado, pero aún no se presenta como
+  validado en Windows 11.
 
 ## Licencia
 
-El código se distribuye bajo la licencia MIT incluida en `LICENSE`. La licencia
-del código no otorga automáticamente derechos de redistribución sobre datos de
-terceros ni sobre artefactos entrenados.
+El código se distribuye bajo la licencia MIT incluida en `LICENSE`. Esto no
+otorga automáticamente derechos de redistribución sobre datos o artefactos de
+terceros.
